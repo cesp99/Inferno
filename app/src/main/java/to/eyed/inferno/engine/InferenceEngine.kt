@@ -150,7 +150,7 @@ class InferenceEngine internal constructor(
                             val avail = cpu.availRamBytes()
                             val need = if (visionAllowed && model.hasVision) est.totalBytes else est.totalBytes - est.visionBytes
                             val gate = (ContextManager.BUDGET_GATE * ContextManager.budgetBytes(avail)).toLong()
-                            if (need > gate) throw EngineException("Not enough memory: needs about ${ContextManager.gb(need + (512L shl 20))} GB free, ${ContextManager.gb(avail)} GB available")
+                            if (need > gate) throw BudgetGateException("Not enough memory: needs about ${ContextManager.gb(ContextManager.freeNeededFor(need))} GB free, ${ContextManager.gb(avail)} GB available")
                             val catalog = model.catalog
                             this@InferenceEngine.model = native.modelLoad(model.textPath, null, useMmap, config.nThreads,
                                 imageMinTokens(model), imageMaxTokens(model, imageDetail)) { done, total, _ ->
@@ -197,6 +197,7 @@ class InferenceEngine internal constructor(
                     val msg = if (lowMemory) NOT_ENOUGH_MEMORY else (e as? EngineException)?.message ?: "Could not load the model: ${e.message}"
                     withContext(NonCancellable + engine) { unloadLocked() }
                     _state.value = EngineState.Error(msg, model)
+                    if (e is BudgetGateException) throw e
                     throw EngineException(msg)
                 }
             }

@@ -165,4 +165,7 @@ data class PromptMessage(val role: String, val content: String, val imageIds: Li
 /** Decoded image ready for mtmd; rgb == null means "count only". */
 data class PromptImage(val id: String, val width: Int, val height: Int, val rgb: ByteArray?)
 
-class EngineException(message: String) : RuntimeException(message)
+open class EngineException(message: String) : RuntimeException(message)
+
+/** The load-time budget gate refused the plan (free RAM moved since it was made): the caller may re-plan once. */
+class BudgetGateException(message: String) : EngineException(message)

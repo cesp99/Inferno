@@ -60,17 +60,22 @@ class ContextManager(private val engine: PlannerEngine) {
         suspend fun estimate(nCtx: Int): MemoryEstimate = cache[nCtx] ?: engine.estimateMemory(model, config(nCtx)).also { cache[nCtx] = it; probes++ }
         fun need(e: MemoryEstimate, vision: Boolean) = if (vision) e.totalBytes else e.totalBytes - e.visionBytes
         suspend fun fits(nCtx: Int, vision: Boolean) = need(estimate(nCtx), vision) <= gate
+        // Auto growth stops short of the gate: availMem keeps moving between plan() and the engine's own gate check
+        // (page cache of a just-downloaded file, the image engine unloading), and a plan sitting exactly on the edge
+        // was refused a second later on the phone. The floor/explicit checks keep the plain gate.
+        val growGate = gate - (GROW_HEADROOM * budget).toLong()
+        suspend fun grows(nCtx: Int, vision: Boolean) = need(estimate(nCtx), vision) <= growGate
 
-        // Largest CTX_STEP multiple in [lo, hi] that fits, lo known to fit. Tries the cap first (one probe when RAM is plentiful).
+        // Largest CTX_STEP multiple in [lo, hi] that fits under the growth gate, lo known to fit. Tries the cap first (one probe when RAM is plentiful).
         suspend fun searchUp(lo: Int, hi: Int, vision: Boolean): Int {
             var l = lo; var h = hi
             if (h <= l) return l
             val limit = probes + MAX_PROBES
-            if (fits(h, vision)) return h
+            if (grows(h, vision)) return h
             while (h - l > CTX_STEP && probes < limit) {
                 val mid = roundDown(l + (h - l) / 2, CTX_STEP)
                 if (mid <= l) break
-                if (fits(mid, vision)) l = mid else h = mid
+                if (grows(mid, vision)) l = mid else h = mid
             }
             return l
         }
@@ -270,7 +275,11 @@ class ContextManager(private val engine: PlannerEngine) {
         }
         /** Planner gate: a plan is accepted when its estimate stays below this fraction of the budget (spec 5.2 step 4, 12.3 a). */
         const val BUDGET_GATE = 0.85
+        /** Share of the budget Auto leaves free above the floor, so the load-time gate check has slack. */
+        const val GROW_HEADROOM = 0.025
         const val MAX_PROBES = 6
+        /** Free RAM that would pass the gate for a plan needing [need] bytes (the inverse of the gate, for messages). */
+        fun freeNeededFor(need: Long): Long = (need / BUDGET_GATE).toLong() + BUDGET_MARGIN
         private const val DEFAULT_CTX_TRAIN = 32768
         private const val DEFAULT_KV_BYTES_PER_TOKEN = 64L * 1024   // Qwen3-VL-2B-class worst case when nothing is known
         private const val BUDGET_MARGIN = 512L * 1024 * 1024

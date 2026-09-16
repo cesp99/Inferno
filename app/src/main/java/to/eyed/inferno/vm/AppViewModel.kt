@@ -31,6 +31,7 @@ import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
+import to.eyed.inferno.engine.BudgetGateException
 import to.eyed.inferno.engine.EngineException
 import to.eyed.inferno.engine.EngineService
 import to.eyed.inferno.engine.EngineState
@@ -251,10 +252,19 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             // The image engine goes first so the plan's availMem reading (and the budget gate) see the real headroom;
             // InferenceEngine.beforeLoad repeats this, harmlessly, right before the weights load.
             c.imageGen.unload()
-            val plan = c.contextManager.plan(local, s, c.cpu)
+            var plan = c.contextManager.plan(local, s, c.cpu)
             _loadPlan.value = plan
             if (plan.reason != null) throw EngineException(plan.reason)
-            val loaded = c.engine.load(local, plan.config, s.imageDetail, s.useMmap, plan.visionAllowed)
+            val loaded = try {
+                c.engine.load(local, plan.config, s.imageDetail, s.useMmap, plan.visionAllowed)
+            } catch (e: BudgetGateException) {
+                // Free RAM moved between the plan and the load (typical right after a download): plan once more
+                // against the memory of now instead of failing the first start with a stale number.
+                plan = c.contextManager.plan(local, s, c.cpu)
+                _loadPlan.value = plan
+                if (plan.reason != null) throw EngineException(plan.reason)
+                c.engine.load(local, plan.config, s.imageDetail, s.useMmap, plan.visionAllowed)
+            }
             loadedUseMmap = s.useMmap
             c.engine.setSampling(effectiveParams())
             val cal = s.calibration[local.id]
