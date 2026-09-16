@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +28,7 @@ import to.eyed.inferno.ui.components.CardDivider
 import to.eyed.inferno.ui.components.ConfirmTwice
 import to.eyed.inferno.ui.components.ConnectedGroup
 import to.eyed.inferno.ui.components.ControlRow
+import to.eyed.inferno.ui.chat.MarkdownBody
 import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.NavRow
 import to.eyed.inferno.ui.components.SectionHeader
@@ -37,7 +37,6 @@ import to.eyed.inferno.ui.components.SettingsCard
 import to.eyed.inferno.ui.components.SheetHeader
 import to.eyed.inferno.ui.components.ToggleRow
 import to.eyed.inferno.ui.theme.Ink
-import to.eyed.inferno.ui.theme.MonoBody
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.ChatViewModel
@@ -108,7 +107,7 @@ fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsStat
     )
 }
 
-/** THIRD-PARTY-NOTICES.md from assets, read on IO; the sheet is the wide (I850) variant with mono text. */
+/** THIRD-PARTY-NOTICES.md from assets, read on IO; the sheet is the wide (I850) variant, rendered as markdown (licence texts land in code blocks). */
 @Composable
 fun LicensesSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -122,7 +121,7 @@ fun LicensesSheet(onDismiss: () -> Unit) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
             SheetHeader(S.openSourceLicences, Lucide.X, onLeading = onDismiss)
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-                SelectionContainer { Text(text, style = MonoBody, color = Ink.I300) }
+                if (text.isNotEmpty()) MarkdownBody(text)
                 Spacer(Modifier.height(24.dp))
             }
         }

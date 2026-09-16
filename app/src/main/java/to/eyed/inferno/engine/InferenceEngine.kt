@@ -82,7 +82,12 @@ class InferenceEngine internal constructor(
     @Volatile private var current: LoadedModel? = null
     private var params = GenerationParams()
     @Volatile private var backendReady = false
-    @Volatile private var appliedThreads = 0          // thread count the live context runs with (thermal-adjusted)
+    // Thread count the live context runs with (thermal-adjusted); observable so the Compute row updates when the
+    // native change lands a moment after the preference.
+    private val _activeThreads = MutableStateFlow(0)
+    private var appliedThreads: Int
+        get() = _activeThreads.value
+        set(v) { _activeThreads.value = v }
     private var mmprojThreads = -1          // thread count the resident projector was created with (4.2)
     private var mmprojMaxTokens = -1        // image_max_tokens the resident projector was created with (residency key)
     /** Image detail the last load / turn asked for: countPromptTokens (fit) must build the same projector generate() will use. */
@@ -111,6 +116,7 @@ class InferenceEngine internal constructor(
     // ---- developer-mode facts (ui/settings/DeveloperPage.kt); snapshot reads, any thread ----
     /** Thread count the live context runs with right now (thermal-adjusted), 0 without a context. */
     val activeThreads: Int get() = appliedThreads
+    val activeThreadsFlow: StateFlow<Int> = _activeThreads.asStateFlow()
     /** Buffer types the last load put the weights in, e.g. "CPU_KLEIDIAI 1.1 GB · CPU_Mapped 0.3 GB"; "" before any load. */
     fun modelBufferTypes(): String = if (!backendReady) "" else parseBufferTypes(native.modelBufferTypes())
 

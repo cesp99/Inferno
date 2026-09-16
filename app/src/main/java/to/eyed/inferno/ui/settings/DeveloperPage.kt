@@ -108,7 +108,8 @@ fun DeveloperPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = 
             val loaded = engine.loadedAny
             // engine.systemInfo() binds the JNI lazily (System.loadLibrary + the ggml CPU probe): never on the main thread.
             val systemInfo by produceState<String?>(null) { value = withContext(Dispatchers.IO) { appVm.systemInfo() } }
-            engineRows(appVm, s, loaded, thermal, sustained, plan?.resolvedLabel, systemInfo).forEachIndexed { i, (label, value) ->
+            val liveThreads by appVm.activeThreadsFlow.collectAsStateWithLifecycle()
+            engineRows(appVm, s, loaded, thermal, sustained, plan?.resolvedLabel, systemInfo, liveThreads).forEachIndexed { i, (label, value) ->
                 if (i > 0) CardDivider()
                 SettingRow(label) { Text(value, style = Numeric, color = Ink.I100, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth(0.62f)) }
             }
@@ -130,14 +131,14 @@ private fun flagLabels(flag: DevFlag): Pair<String, String> = when (flag) {
 }
 
 /** Label -> value rows of the Engine card; model-bound rows show "—" while nothing is loaded. */
-private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedModel?, thermal: Int, sustained: Boolean, ctxLabel: String?, systemInfo: String?): List<Pair<String, String>> {
+private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedModel?, thermal: Int, sustained: Boolean, ctxLabel: String?, systemInfo: String?, liveThreads: Int): List<Pair<String, String>> {
     val cpu = appVm.cpu
     val out = mutableListOf<Pair<String, String>>()
     out += S.llamaCppRow to "${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)}"
     out += S.sdCppRow to BuildConfig.SD_COMMIT.take(7)
     out += S.cpuRow to "${cpu.socName.ifBlank { "CPU" }} · ${cpu.nBig} big of ${cpu.nCores}"
     out += S.cpuFeaturesRow to (systemInfo?.let(::cpuFeatures) ?: S.loading)
-    val live = appVm.activeThreads()
+    val live = liveThreads
     out += S.threadsRow to if (live > 0) "$live · ${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}" else "${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}"
     out += S.thermalRow to AppViewModel.thermalName(thermal)
     out += S.sustainedRow to if (sustained) S.on else S.off

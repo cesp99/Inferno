@@ -433,12 +433,14 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     val sustainedMode: StateFlow<Boolean> = c.thermal.sustainedRequested
     /** Thread count the live context runs with right now (thermal-adjusted); 0 without a context. */
     fun activeThreads(): Int = c.engine.activeThreads
+    /** Observable twin of [activeThreads] for rows that must repaint when the native thread change lands. */
+    val activeThreadsFlow: StateFlow<Int> get() = c.engine.activeThreadsFlow
     /** "CPU_KLEIDIAI 1.1 GB · CPU_Mapped 0.3 GB" from the last load's llama.cpp log, "" before any load. */
     fun modelBufferTypes(): String = runCatching { c.engine.modelBufferTypes() }.getOrDefault("")
     /** "4 threads · pinned · thermal light · sustained off": the chat empty-state / chip long-press line (showThermalInfo). */
-    fun computeLine(): String {
+    fun computeLine(live: Int = activeThreads()): String {
         val s = settings.value
-        val live = activeThreads().takeIf { it > 0 }
+        val live = live.takeIf { it > 0 }
         val threads = if (live != null && live != s.threads) "$live of ${s.threads} threads" else "${s.threads} threads"
         val thermal = thermalName(thermalStatus.value)
         return "$threads · ${if (s.pinBigCores) "pinned" else "free"} · thermal $thermal · sustained ${if (sustainedMode.value) "on" else "off"}"

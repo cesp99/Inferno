@@ -104,6 +104,7 @@ import to.eyed.inferno.vm.isBusy
 fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Unit, onDrawerOpenChanged: (Boolean) -> Unit = {}) {
     val engine by appVm.engine.collectAsStateWithLifecycle()
     val settings by appVm.settings.collectAsStateWithLifecycle()
+    val liveThreads by appVm.activeThreadsFlow.collectAsStateWithLifecycle()
     val models by appVm.models.collectAsStateWithLifecycle()
     val loadPlan by appVm.loadPlan.collectAsStateWithLifecycle()
     val messages by chatVm.messages.collectAsStateWithLifecycle()
@@ -276,7 +277,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                         onOpenDrawer = openNav, onOpenModelSheet = { modelSheet = true },
                         onNewChat = { haptics.tap(); chatVm.newChat(); draft = "" },
                         showContextRing = settings.devContextMeter,
-                        computeLine = if (settings.devThermalInfo) appVm::computeLine else null,
+                        computeLine = if (settings.devThermalInfo) ({ appVm.computeLine(liveThreads) }) else null,
                         onCompactNow = if (canCompact) ({ chatVm.compactNow() }) else null,
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -286,7 +287,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 onSuggestion = { draft = it }, onDescribePhoto = pickPhotos,
                                 onChooseModel = { modelSheet = true },
                                 modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
-                                computeLine = if (settings.devThermalInfo) appVm.computeLine() else null,
+                                computeLine = if (settings.devThermalInfo) appVm.computeLine(liveThreads) else null,
                             )
                         } else {
                             MessagesList(
