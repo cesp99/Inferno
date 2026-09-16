@@ -51,6 +51,11 @@ import to.eyed.inferno.ui.components.GlassButton
 import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.PrimaryButton
 import to.eyed.inferno.ui.components.SheetHeader
+import to.eyed.inferno.ui.bench.BenchScreen
+import to.eyed.inferno.ui.models.ModelManagerScreen
+import to.eyed.inferno.ui.onboarding.FirstRunScreen
+import to.eyed.inferno.ui.onboarding.UnsupportedCpuScreen
+import to.eyed.inferno.ui.settings.SettingsScreen
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.LocalAnimations
 import to.eyed.inferno.ui.theme.LocalHaptics
@@ -122,8 +127,8 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
 
         Box(Modifier.fillMaxSize().safeDrawingPadding()) {
             when {
-                !container.isCpuSupported -> UnsupportedCpuPlaceholder()
-                showFirstRun -> FirstRunPlaceholder(appVm, onBeforeDownload = ensureNotifications)
+                !container.isCpuSupported -> UnsupportedCpuScreen(container.cpu)
+                showFirstRun -> FirstRunScreen(appVm, onBeforeDownload = ensureNotifications)
                 else -> Screens(appVm, chatVm, benchVm, imageVm, screen, ensureNotifications)
             }
 
@@ -183,9 +188,9 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
     ) { s ->
         when (s) {
             Screen.CHAT -> ChatRoot(appVm, chatVm, onBeforeSend = ensureNotifications)
-            Screen.MODELS -> ModelsPlaceholder(appVm, onBeforeDownload = ensureNotifications)
-            Screen.SETTINGS -> SettingsPlaceholder(appVm)
-            Screen.BENCH -> BenchPlaceholder(benchVm, appVm)
+            Screen.MODELS -> ModelManagerScreen(appVm, onBeforeDownload = ensureNotifications)
+            Screen.SETTINGS -> SettingsScreen(appVm, chatVm)
+            Screen.BENCH -> BenchScreen(benchVm, appVm)
             Screen.CREATE -> CreatePlaceholder(imageVm, appVm, chatVm, onBeforeDownload = ensureNotifications)
             Screen.GALLERY -> GalleryPlaceholder(imageVm, appVm)
         }

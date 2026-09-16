@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +63,21 @@ fun GlassMenu(
         border = BorderStroke(1.dp, Ink.I700),
         content = { content() },
     )
+}
+
+/**
+ * Same menu, card radius and a 4 dp gap below the anchor - the variant the model cards use (WP8). Kept
+ * as a thin alias over [GlassMenu] so both call-site styles share one implementation.
+ */
+@Composable
+fun FlatMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    offset: DpOffset = DpOffset(0.dp, 4.dp),
+    content: @Composable () -> Unit,
+) {
+    GlassMenu(expanded = expanded, onDismiss = onDismiss, modifier = modifier, offset = offset) { content() }
 }
 
 /** One menu row: 16 dp icon + 14 sp label. `tint = Ink.Danger` for destructive rows. */
@@ -117,4 +133,41 @@ fun MenuConfirmRow(
         modifier = modifier,
         onClick = { if (armed) { armed = false; onConfirm() } else armed = true },
     )
+}
+
+/**
+ * Menu row with an optional icon and an `enabled` flag (WP8 model cards). Visually matches
+ * [MenuActionRow]; prefer that one when the row always has an icon.
+ */
+@Composable
+fun MenuRow(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    color: Color = Ink.I100,
+    enabled: Boolean = true,
+) {
+    val haptics = rememberHaptics()
+    val tint = if (enabled) color else Ink.I500
+    Row(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(Radii.control))
+            .minimumInteractiveComponentSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = { haptics.tap(); onClick() },
+            )
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (icon != null) Icon(icon, null, Modifier.size(16.dp), tint = tint)
+        Text(label, style = Typography.labelLarge, color = tint)
+    }
 }

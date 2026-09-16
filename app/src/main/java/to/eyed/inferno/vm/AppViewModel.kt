@@ -24,6 +24,7 @@ import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.ContextManager
+import to.eyed.inferno.engine.CpuTopology
 import to.eyed.inferno.engine.EngineException
 import to.eyed.inferno.engine.EngineService
 import to.eyed.inferno.engine.EngineState
@@ -203,6 +204,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         viewModelScope.launch { c.prefs.setContextSize(nCtx); reloadOrDefer() }
     }
 
+    /** Context page Apply with a KV type change in the same step: both prefs land before the single reconfigure. */
+    fun applyContext(nCtx: Int, kv: KvCachePref) {
+        viewModelScope.launch { c.prefs.setContextSize(nCtx); c.prefs.setKvCache(kv); reloadOrDefer() }
+    }
+
     private suspend fun loadNow(local: LocalModel) {
         val s = settings.value
         firstTurnPending = false
@@ -301,6 +307,19 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             approximate = true,
         )
     }
+
+    // ---- read-only facts for the settings / models / bench UI (WP8, additive) ---------------------------------
+
+    /** CPU topology and RAM facts ("4 big cores detected", the Compute info row, UnsupportedCpuScreen features). */
+    val cpu: CpuTopology get() = c.cpu
+    /** The planner's memory budget right now (availMem minus the LMK margin); the context page bar is estimate / budget. */
+    fun budgetBytes(): Long = ContextManager.budgetBytes(c.cpu.availRamBytes())
+    /** Native ggml system-info line for Settings > Advanced > System info (binds the JNI lazily; supported CPUs only). */
+    fun systemInfo(): String = runCatching { c.engine.systemInfo() }.getOrElse { it.message ?: "unavailable" }
+    /** POST_NOTIFICATIONS granted and the app not muted: drives the "Enable notifications" notice in the model manager. */
+    val notificationsEnabled: Boolean get() = c.notifications.enabled
+    /** Clears the camera capture cache (Settings > Storage > Clear image cache). */
+    fun clearImageCache() { viewModelScope.launch { runCatching { c.images.clearCache() }; notice("Image cache cleared") } }
 
     // ---- downloads / storage ---------------------------------------------------------------------------------
 

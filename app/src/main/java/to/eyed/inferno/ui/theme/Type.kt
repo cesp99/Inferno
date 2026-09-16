@@ -19,6 +19,14 @@ private val LabelTracking = 0.1.sp
 private val TitleTracking = (-0.2).sp
 
 val Typography = Typography(
+    // Large-title app bars (LargeFlexibleTopAppBar reads displaySmall when expanded): Models / Settings / Benchmark
+    displaySmall = TextStyle(
+        fontFamily = Sans,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 34.sp,
+        lineHeight = 40.sp,
+        letterSpacing = TitleTracking,
+    ),
     // Hero titles (FirstRun wordmark, empty state)
     headlineSmall = TextStyle(
         fontFamily = Sans,
