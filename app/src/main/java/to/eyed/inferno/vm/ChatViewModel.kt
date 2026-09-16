@@ -177,8 +177,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val loaded = c.engine.state.value.loadedAny ?: return@launch
             if (settings.contextPolicy != ContextPolicy.STOP) return@launch
             val history = c.chats.messagesOnce(id)
-            if (history.lastOrNull()?.role != ChatRepository.ROLE_USER) return@launch
             val view = MemoryView.of(history)
+            if (view.recent.lastOrNull()?.role != ChatRepository.ROLE_USER) return@launch
             val system = ContextManager.systemWith(settings.systemPrompt.takeIf { it.isNotBlank() }, view.summary?.content)
             val nCtx = loaded.context.nCtx
             val reserve = c.contextManager.reserveFor(appVm.effectiveParams(), nCtx, settings.thinking && (loaded.model.catalog?.thinking?.hasTags == true))
@@ -493,7 +493,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             val outcome = runCompaction(id, keepTurns = 0)
             if (outcome is CompactOutcome.Nothing) appVmRef?.notice(S.nothingToCarryOver)
             val summary = (outcome as? CompactOutcome.Done)?.result?.summary ?: return@launchGen
-            val pending = c.chats.messagesOnce(id).lastOrNull()?.takeIf { it.role == ChatRepository.ROLE_USER && it.orderIndex > summary.compactedThrough }
+            // The summary row was just appended after the question: look at the last turn, not the last row.
+            val pending = c.chats.messagesOnce(id).lastOrNull { !it.isSummary }?.takeIf { it.role == ChatRepository.ROLE_USER && it.orderIndex > summary.compactedThrough }
             val title = conversations.value.firstOrNull { it.id == id }?.displayTitle ?: S.chatFallbackTitle
             val fresh = c.chats.create(c.engine.state.value.modelOrNull?.id)
             c.chats.setTitle(fresh.id, S.continuedTitle(title))
