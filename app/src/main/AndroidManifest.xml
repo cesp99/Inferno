@@ -27,8 +27,8 @@
          dataExtractionRules excludes the whole root from both cloud backup and D2D transfer.
          supportsRtl=false: v1 strings are hard-coded English and Lucide has no auto-mirrored variants; model
          output in RTL scripts still renders correctly because Text defaults to TextDirection.Content.
-         tools:ignore=MissingClass: InfernoApp (WP5), EngineService (WP2) and DownloadService (WP3) are
-         delivered by other work packages; the manifest is committed first so every package builds against it. -->
+         tools:ignore=MissingClass: the lint check cannot resolve InfernoApp, EngineService and
+         DownloadService through the Kotlin sources. -->
     <application
         android:name=".InfernoApp"
         android:allowBackup="false"

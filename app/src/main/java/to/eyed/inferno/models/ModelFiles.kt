@@ -20,7 +20,7 @@ import java.security.MessageDigest
 /** A catalog text/projector file as the downloader sees it: stored under `files/models/<modelId>/`. */
 fun ModelFileSpec.toDownload(modelId: String) = DownloadableFile(url = url, fileName = fileName, sizeBytes = sizeBytes, subdir = modelId, sha256 = sha256)
 
-/** An image-model file (WP9b) as the downloader sees it: `files/models/<dirId>/` where dirId = model id or "taesd". */
+/** An image-model file as the downloader sees it: `files/models/<dirId>/` where dirId = model id or "taesd". */
 fun ImageModelFile.toDownload(dirId: String) = DownloadableFile(url = url, fileName = fileName, sizeBytes = sizeBytes, subdir = dirId, sha256 = sha256)
 
 /** Download order: text first, then the projector (Downloading.fileIndex 1/2, 2/2). */
@@ -31,7 +31,7 @@ val ImageCatalogModel.downloads: List<DownloadableFile>
     get() = listOf(file.toDownload(id), ImageModelCatalog.taesd.toDownload(ImageModelCatalog.TAESD_DIR_ID))
 
 /**
- * Storage layout under `filesDir/models` (spec Section 2). Everything lives on internal storage: external
+ * Storage layout under `filesDir/models`. Everything lives on internal storage: external
  * storage is FUSE-backed and would slow the mmap'd weights.
  *
  *   models/<modelId>/<fileName>              complete catalog / image-model file

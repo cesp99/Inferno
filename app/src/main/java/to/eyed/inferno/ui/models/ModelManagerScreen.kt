@@ -69,7 +69,7 @@ import to.eyed.inferno.ui.theme.whiteA
 import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.Screen
 
-// Full-screen model manager (spec 5.6 ModelManagerScreen.kt): tiers as section headers, one grouped card per
+// Full-screen model manager: tiers as section headers, one grouped card per
 // tier, downloads unfolding inside the rows, imports, image models, storage footer.
 
 @Composable

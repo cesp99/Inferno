@@ -45,7 +45,7 @@ import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.vm.AppViewModel
 import java.util.Locale
 
-// Bottom sheet from the chat model chip (spec 5.6 ModelSheet.kt): downloaded models with the loaded one checked,
+// Bottom sheet from the chat model chip: downloaded models with the loaded one checked,
 // "Manage models", then - for a power user - the Context length and Generation pages. The page name survives rotation.
 
 @Composable

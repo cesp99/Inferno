@@ -26,7 +26,7 @@ import to.eyed.inferno.ui.S
 import java.io.File
 
 /**
- * Benchmark screen (spec 5.5). Every run holds the engine job through InferenceEngine.bench; the thread matrix
+ * Benchmark screen. Every run holds the engine job through InferenceEngine.bench; the thread matrix
  * reconfigures between rows and restores the user's configuration at the end.
  */
 class BenchViewModel(private val c: AppContainer) : ViewModel() {

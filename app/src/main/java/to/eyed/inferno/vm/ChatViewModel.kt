@@ -47,7 +47,7 @@ import to.eyed.inferno.models.ThinkingSpec
 import to.eyed.inferno.ui.S
 
 /**
- * Conversations + generation (spec 5.5). One private [run] over the PERSISTED history; send / regenerate /
+ * Conversations + generation. One private [run] over the PERSISTED history; send / regenerate /
  * editAndResend differ only in what they do to the history first. `activeId` and the pending attachment ids
  * live in the SavedStateHandle.
  */
@@ -125,12 +125,12 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
      * [ContextManager.STOP_FRACTION]); ChatRoot swaps the composer for the ContextFullPanel.
      */
     val contextFull: StateFlow<Boolean> = combine(activeId, stopFull, contextUsage, c.prefs.settings) { id, full, usage, s ->
-        // The chars/4 estimate (approximate = true) must never gate the composer (5.5): only fit()'s real measure at
+        // The chars/4 estimate (approximate = true) must never gate the composer: only fit()'s real measure at
         // send time or an exact kvUsed count from the last turn may show the panel.
         s.contextPolicy == ContextPolicy.STOP && ((id != null && id in full) || (!usage.approximate && ContextManager.contextFull(usage.used, usage.nCtx)))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** True while an image generation owns the native job: the composer disables Send (12.5). */
+    /** True while an image generation owns the native job: the composer disables Send. */
     val imageBusy: StateFlow<Boolean> = c.imageGen.state.map { it is to.eyed.inferno.imagegen.ImageGenUiState.Loading || it is to.eyed.inferno.imagegen.ImageGenUiState.Generating }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
@@ -139,7 +139,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
      * must cancel the job of the chat it was pressed in, not whichever job started last.
      */
     private val genJobs = mutableMapOf<String, Job>()
-    /** A turn queued while the model loads, remembered with the chat it was typed in (5.5). */
+    /** A turn queued while the model loads, remembered with the chat it was typed in. */
     private data class QueuedSend(val target: String, val text: String, val attachments: List<Attachment>)
     private var pendingSend: QueuedSend? = null
 
@@ -220,7 +220,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             .onSuccess { att -> _pending.update { list -> if (list.any { it.id == att.id } || list.size >= MAX_ATTACHMENTS) list else list + att }; savePending() }
             .onFailure { appVmRef?.notice(it.message ?: S.couldNotReadImage) }
     }
-    /** Output URI for ACTION_IMAGE_CAPTURE (additive WP7 helper; the UI keeps it in rememberSaveable across the camera app). */
+    /** Output URI for ACTION_IMAGE_CAPTURE (the UI keeps it in rememberSaveable across the camera app). */
     fun newCameraUri(): Uri = c.images.newCameraUri()
     fun attachCameraResult(uri: Uri) = viewModelScope.launch {
         attachFromUri(uri).join()
@@ -453,7 +453,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             setGen(conversationId, GenState.Error(e.message ?: S.generationFailed))
         } finally {
             // Every orderly end of the turn (Done, Error, NeedsTruncation, Stop, exception) reached Kotlin, so the
-            // native side did not die: disarm the crash-loop guard. Only a real process death leaves it set (5.5).
+            // native side did not die: disarm the crash-loop guard. Only a real process death leaves it set.
             // markFirstTurnOk launches on appVm.viewModelScope and is a no-op when the guard is already clear.
             appVm.markFirstTurnOk()
         }

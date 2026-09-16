@@ -63,7 +63,7 @@ import to.eyed.inferno.vm.Screen
 import java.io.File
 import java.util.Locale
 
-// Benchmark screen (spec 5.6 BenchScreen.kt): headline number from the last run, quick / matrix runs with the
+// Benchmark screen: headline number from the last run, quick / matrix runs with the
 // wavy progress, a tabular results table (tnum so the columns never wobble), thermal line and Share JSON.
 
 @Composable

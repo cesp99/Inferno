@@ -45,7 +45,7 @@ import to.eyed.inferno.ui.theme.RowTitle
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.ui.theme.whiteA
 
-// Material 3 Expressive pieces the spec names (6.3), restyled to the monochrome language: connected
+// Material 3 Expressive pieces, restyled to the monochrome language: connected
 // ToggleButton groups (shape-morph on press, white when checked), the wavy progress bar (white on 12 % white,
 // frozen when paused) and the expressive slider (thick track, bar thumb). Nothing here draws a ripple.
 

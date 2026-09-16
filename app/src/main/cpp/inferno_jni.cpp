@@ -1,4 +1,4 @@
-// JNI glue for to.eyed.inferno.engine.LlamaNative. Maps 1:1 to the Kotlin declarations (spec 3.2); every
+// JNI glue for to.eyed.inferno.engine.LlamaNative. Maps 1:1 to the Kotlin declarations; every
 // piece of free-form text (model metadata, token pieces, errors) crosses as raw UTF-8 byte arrays because
 // NewStringUTF only accepts modified UTF-8 (CheckJNI aborts on 4-byte code points).
 #include <jni.h>

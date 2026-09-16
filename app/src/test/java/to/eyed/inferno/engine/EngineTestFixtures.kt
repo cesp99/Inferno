@@ -9,7 +9,7 @@ import to.eyed.inferno.models.Quant
 import to.eyed.inferno.models.SamplingDefaults
 import to.eyed.inferno.models.ThinkingSpec
 
-/** Catalog rows shaped like the real ones (numbers from spec section 8 / addendum 12.4) for the planner and engine tests. */
+/** Catalog rows shaped like the real ones (numbers from the real catalog) for the planner and engine tests. */
 object EngineTestFixtures {
     const val MB = 1024L * 1024
     const val GB = 1024L * MB

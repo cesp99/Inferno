@@ -27,7 +27,7 @@ import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Numeric
 import to.eyed.inferno.ui.theme.Typography
 
-/** Terminal screen (spec 6.1 flow 1): the owl, why, and what the probe found. */
+/** Terminal screen: the owl, why, and what the probe found. */
 @Composable
 fun UnsupportedCpuScreen(cpu: CpuTopology?) {
     Column(

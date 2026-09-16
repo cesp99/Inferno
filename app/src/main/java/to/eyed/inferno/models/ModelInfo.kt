@@ -2,7 +2,7 @@ package to.eyed.inferno.models
 
 import kotlinx.serialization.Serializable
 
-/** SPECIALIST is reserved (spec 12.2) for OCR / task models so they can be added without a schema change. */
+/** SPECIALIST is reserved for OCR / task models so they can be added without a schema change. */
 enum class ModelTier(val label: String) {
     FASTEST("Fastest"), BALANCED("Balanced"), QUALITY("Best quality"), LEGACY("More models"), SPECIALIST("Specialists")
 }
@@ -45,8 +45,8 @@ data class ModelFileSpec(
 )
 
 /**
- * What the downloader and the storage layout actually operate on (additive, WP3). Both catalog file types map
- * to it: a [ModelFileSpec] of a text model (subdir = the model id) and WP9b's `ImageModelFile` (subdir = the
+ * What the downloader and the storage layout actually operate on. Both catalog file types map
+ * to it: a [ModelFileSpec] of a text model (subdir = the model id) and the image catalog's `ImageModelFile` (subdir = the
  * image model id, or `ImageModelCatalog.TAESD_DIR_ID` for the TAESD decoder both image models share). The
  * file lives at `files/models/<subdir>/<fileName>`, with `<fileName>.part(.json)` next to it while transferring.
  */

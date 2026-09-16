@@ -23,7 +23,7 @@ import to.eyed.inferno.models.ImageModelCatalog
 import to.eyed.inferno.ui.S
 
 /**
- * Thin VM over ImageGenRepository (12.5): prompt, model choice, size preset, steps, seed, generate / cancel,
+ * Thin VM over ImageGenRepository: prompt, model choice, size preset, steps, seed, generate / cancel,
  * the gallery Flow and the save / share hooks. The prompt and the last seed live in the SavedStateHandle.
  */
 class ImageGenViewModel(private val c: AppContainer, private val handle: SavedStateHandle) : ViewModel() {
@@ -65,7 +65,7 @@ class ImageGenViewModel(private val c: AppContainer, private val handle: SavedSt
     /** Estimate for any card, not just the selected model (the picker shows "~12 s" on both). */
     fun estimateSeconds(modelId: String, size: ImageSizePreset, steps: Int? = null): Int = c.imageGen.estimateSeconds(modelId, size, steps)
 
-    /** True from the Generate tap until Done / Error / cancel; the chat composer shows "Generating image…" (WP7). */
+    /** True from the Generate tap until Done / Error / cancel; the chat composer shows "Generating image…". */
     val isBusy: StateFlow<Boolean> = state.map { it is ImageGenUiState.Loading || it is ImageGenUiState.Generating }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 

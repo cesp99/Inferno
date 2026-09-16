@@ -259,7 +259,7 @@ private fun Centre(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) { content() }
 }
 
-/** Blurred latent projection behind a 45 % scrim, the ring and "Step 2/4 · ~40 s" (12.5). */
+/** Blurred latent projection behind a 45 % scrim, the ring and "Step 2/4 · ~40 s". */
 @Composable
 private fun GeneratingFace(st: ImageGenUiState.Generating, progress: State<Float>, etaSeconds: Int, modelName: String, sizePx: Int) {
     // The projection is tiny (latent / 8), so decoding it in composition costs well under a millisecond.

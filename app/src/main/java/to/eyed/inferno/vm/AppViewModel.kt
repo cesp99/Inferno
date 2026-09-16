@@ -61,7 +61,7 @@ sealed interface PendingAction {
 }
 
 /**
- * Screen, engine lifecycle, model selection and settings (spec 5.5). Activity-scoped; `screen` lives in the
+ * Screen, engine lifecycle, model selection and settings. Activity-scoped; `screen` lives in the
  * SavedStateHandle so a process death restores the same screen.
  */
 class AppViewModel(private val c: AppContainer, private val handle: SavedStateHandle) : ViewModel() {
@@ -102,11 +102,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     private val _pending = MutableStateFlow<PendingAction?>(null)
     val pendingIntent: StateFlow<PendingAction?> = _pending.asStateFlow()
 
-    /** "Phone is hot" chip: the governor is currently taking threads away (12.3 c). */
+    /** "Phone is hot" chip: the governor is currently taking threads away. */
     val isHot: StateFlow<Boolean> = combine(c.thermal.status, c.thermal.headroom) { _, _ -> c.thermal.isHot }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    /** Set by Root when the chat screen is first displayed: the keepModelLoaded auto-load waits for it (5.5). */
+    /** Set by Root when the chat screen is first displayed: the keepModelLoaded auto-load waits for it. */
     private val chatShown = MutableStateFlow(false)
     fun onChatDisplayed() { chatShown.value = true }
 
@@ -157,7 +157,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         if (engine.value is EngineState.Idle) selectAndLoad(local.id)
     }
 
-    /** First run: the recommended model finishing its download completes onboarding and loads it (6.1 flow 2). */
+    /** First run: the recommended model finishing its download completes onboarding and loads it. */
     private suspend fun firstRunAutoLoad() {
         c.prefs.loaded.first { it }
         val rec = ModelCatalog.recommended
@@ -259,7 +259,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         firstTurnPending = false
         c.prefs.setSelectedModel(local.id)
         if (!s.onboardingDone) c.prefs.setOnboardingDone(true)
-        // Guard is written BEFORE the native load: a kernel-level death leaves it set for the next start (5.5).
+        // Guard is written BEFORE the native load: a kernel-level death leaves it set for the next start.
         c.prefs.setLoadAttempt(local.id)
         try {
             // The image engine goes first so the plan's availMem reading (and the budget gate) see the real headroom;
@@ -366,7 +366,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         )
     }
 
-    // ---- read-only facts for the settings / models / bench UI (WP8, additive) ---------------------------------
+    // ---- read-only facts for the settings / models / bench UI ---------------------------------
 
     /** CPU topology and RAM facts ("4 big cores detected", the Compute info row, UnsupportedCpuScreen features). */
     val cpu: CpuTopology get() = c.cpu
@@ -478,7 +478,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         viewModelScope.launch { if (settings.value.loadAttemptModelId != null && !_loadInProgress.value) c.prefs.setLoadAttempt(null) }
     }
 
-    // ---- additive UI helpers (WP7) ---------------------------------------------------------------------------
+    // ---- UI helpers ---------------------------------------------------------------------------
 
     /** Sidebar footer line, e.g. "Dimensity 7300 · 4 big cores · 7.7 GB". Static facts, computed once. */
     val deviceSummary: String by lazy {

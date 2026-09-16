@@ -13,7 +13,7 @@ enum class KvCacheType(val ggmlType: Int) { F16(1), Q8_0(8), Q4_0(2) }
  *  - nCtx is a multiple of 256 and >= ContextManager.MIN_CTX;
  *  - nBatch == nUbatch >= 512 and a multiple of 64, and >= the largest image chunk the model can emit (5.2 plan);
  *  - kvType != F16 requires flashAttention == true (quantized V cache needs FA; llama.cpp aborts otherwise);
- *  - nOutputsMax >= 1 (every batch requests logits for at most one token, 4.5 step 2).
+ *  - nOutputsMax >= 1 (every batch requests logits for at most one token).
  */
 data class ContextConfig(
     val nCtx: Int,
@@ -142,8 +142,8 @@ sealed interface EngineState {
     data class Ready(val loaded: LoadedModel) : EngineState
     data class Generating(val loaded: LoadedModel, val conversationId: String) : EngineState
     /**
-     * Weights resident, llama_context released (and the projector too when visionReleased) after a memory trim
-     * (4.3). The next generate()/countPromptTokens() transparently resumes (5.2). Not "Ready": loadedOrNull == null,
+     * Weights resident, llama_context released (and the projector too when visionReleased) after a memory trim.
+     * The next generate()/countPromptTokens() transparently resumes. Not "Ready": loadedOrNull == null,
      * but the UI keeps the composer enabled and the chip shows the model name in I500 with a `Zap` icon.
      */
     data class Suspended(val loaded: LoadedModel, val visionReleased: Boolean) : EngineState

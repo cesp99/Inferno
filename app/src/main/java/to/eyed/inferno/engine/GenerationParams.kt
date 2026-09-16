@@ -13,7 +13,7 @@ data class GenerationParams(
     val repeatLastN: Int = 64,
     val frequencyPenalty: Float = 0f,
     val presencePenalty: Float = 0f,
-    val dryMultiplier: Float = 0f,      // <= 0 => DRY sampler not added; when added, sequence breakers are the llama.cpp common defaults {"\n", ":", "\"", "*"} (fixed in native, 4.5 step 3)
+    val dryMultiplier: Float = 0f,      // <= 0 => DRY sampler not added; when added, sequence breakers are the llama.cpp common defaults {"\n", ":", "\"", "*"} (fixed in native)
     val dryBase: Float = 1.75f,
     val dryAllowedLength: Int = 2,
     val dryPenaltyLastN: Int = -1,

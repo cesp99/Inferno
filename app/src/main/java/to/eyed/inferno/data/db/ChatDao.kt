@@ -37,7 +37,7 @@ interface ChatDao {
     @Query("UPDATE conversations SET archived = :archived WHERE id = :id") suspend fun setArchived(id: String, archived: Boolean)
     @Query("UPDATE conversations SET trimmedBefore = :idx WHERE id = :id") suspend fun setTrimmedBefore(id: String, idx: Int)
 
-    // ---- WP4 additions (not in the 5.4 contract; needed by ChatRepository) ----
+    // ---- queries needed by ChatRepository ----
     @Query("SELECT * FROM conversations WHERE id = :id") suspend fun conversation(id: String): ConversationEntity?
     @Query("UPDATE conversations SET updatedAt = :at WHERE id = :id") suspend fun touch(id: String, at: Long)
     @Query("UPDATE conversations SET modelId = :modelId, updatedAt = :at WHERE id = :id") suspend fun setModel(id: String, modelId: String?, at: Long)
@@ -63,7 +63,7 @@ interface ChatDao {
     }
 }
 
-/** Gallery of past text-to-image generations (12.5). Files are managed by ImageUtil; rows by WP9b's repository. */
+/** Gallery of past text-to-image generations. Files are managed by ImageUtil; rows by ImageGenRepository. */
 @Dao
 interface GeneratedImageDao {
     @Query("SELECT * FROM generated_images ORDER BY createdAt DESC") fun observeAll(): Flow<List<GeneratedImageEntity>>

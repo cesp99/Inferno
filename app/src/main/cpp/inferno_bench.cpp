@@ -1,4 +1,4 @@
-// Engine: in-app benchmark (spec 4.5 step 11).
+// Engine: in-app benchmark.
 #include "inferno_engine.h"
 
 #include <algorithm>

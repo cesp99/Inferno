@@ -1,7 +1,7 @@
 package to.eyed.inferno.models
 
 /**
- * Curated catalog (spec 5.3 + 12.2 corrections, ranked per research/model-catalog-2026.md §1). Byte sizes and
+ * Curated catalog. Byte sizes and
  * sha256 are the Hugging Face LFS values (`/api/models/<repo>?blobs=true`, captured 2026-09-16); every URL was
  * HEAD-verified the same day. Speeds are bench-seeker.md measurements on the Seeker (4 pinned A78 threads):
  * pp128/tg32 and the 448 px image-encode time.
@@ -41,15 +41,15 @@ object ModelCatalog {
             paramsB = 1.3f, license = APACHE, contextMax = 262_144, defaultCtx = 32_768, kvBytesPerTokenF16 = 12_288,
             text = ModelFileSpec("MiniCPM-V-4_6-Q4_0.gguf", url("openbmb/MiniCPM-V-4.6-gguf", "MiniCPM-V-4_6-Q4_0.gguf"), 501_256_896,
                 "cdfb3ae7533d4702fc8bcaab0636e3dd1d36f700f09e674f4993e2750975481a", Quant.Q4_0),
-            // ggml-org Q8_0 projector (12.2): 381 MB smaller than openbmb's f16 and the one WP1 (j) passed with at 448 px.
+            // ggml-org Q8_0 projector: 381 MB smaller than openbmb's f16 and the one the vision acceptance test passed with at 448 px.
             mmproj = ModelFileSpec("mmproj-MiniCPM-V-4.6-Q8_0.gguf", url("ggml-org/MiniCPM-V-4.6-GGUF", "mmproj-MiniCPM-V-4.6-Q8_0.gguf"), 727_954_528,
                 "3d8249cdd0e1cb699644eb021fbcc04320aad89fa5dc9234ef94db0846556581", Quant.Q8_0),
-            // The Instruct checkpoint never emits <think>; thinking stays off (12.2) and the disable prefix is injected explicitly.
+            // The Instruct checkpoint never emits <think>; thinking stays off and the disable prefix is injected explicitly.
             thinking = ThinkingSpec(openTag = "<think>", closeTag = "</think>", defaultOn = false, disablePrefix = "<think>\n\n</think>\n\n", enablePrefix = null),
             sampling = SamplingDefaults(temperature = 0.7f, topP = 0.8f, topK = 100, minP = 0f, repeatPenalty = 1.05f),
             // llava-uhd slicing ignores image_max_tokens: 448 px = overview tile only. Never raise this cap (kernel-panic incident, 5.3).
             imageTokensMin = 0, imageTokensMax = 512, dynamicResolution = false, maxImageEdgePx = 448,
-            encoderPeakBytes = 600 * MB,   // measured 2026-09-16: peak RSS 1.73 GB with 1.23 GB of weights at 448 px (WP1 acceptance j)
+            encoderPeakBytes = 600 * MB,   // measured 2026-09-16: peak RSS 1.73 GB with 1.23 GB of weights at 448 px
             estTgTps = "25-30",   // measured 2026-09-16: pp 199 / tg 29.7
             blurb = "Fastest vision model here; good at reading text in photos.",
             encodeMsAt448 = 5200,
@@ -72,12 +72,12 @@ object ModelCatalog {
             paramsB = 5.1f, license = APACHE, contextMax = 131_072, defaultCtx = 16_384,
             // Only the 3 global-attention layers grow with context (1 KV head x 512 x 2 x 2 B); the 12 SWA layers stay ~12 MB with swa_full=false.
             kvBytesPerTokenF16 = 6_144,
-            // Official Google QAT file (12.2): ~1.9 GB of it is the per-layer-embedding table that stays mmapped.
+            // Official Google QAT file: ~1.9 GB of it is the per-layer-embedding table that stays mmapped.
             text = ModelFileSpec("gemma-4-E2B_q4_0-it.gguf", url("google/gemma-4-E2B-it-qat-q4_0-gguf", "gemma-4-E2B_q4_0-it.gguf"), 3_349_516_256,
                 "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634", Quant.Q4_0),
             mmproj = ModelFileSpec("mmproj-gemma-4-E2B-it-Q8_0.gguf", url("ggml-org/gemma-4-E2B-it-GGUF", "mmproj-gemma-4-E2B-it-Q8_0.gguf"), 557_368_064,
                 "9406f99c16d68cda4f1f0552192dcc99021ea1fc6d2fd50b1dc3ccf30d04b292", Quant.Q8_0),
-            // Thinking is opt-in via "<|think|>" in the system turn (WP1 formatter), not an assistant prefix; off in v1.
+            // Thinking is opt-in via "<|think|>" in the system turn (hand-rolled formatter), not an assistant prefix; off in v1.
             thinking = ThinkingSpec(),
             sampling = SamplingDefaults(temperature = 1.0f, topP = 0.95f, topK = 64, minP = 0f),
             imageTokensMin = 70, imageTokensMax = 560, dynamicResolution = false, maxImageEdgePx = 896, encoderPeakBytes = 500 * MB,
@@ -150,7 +150,7 @@ object ModelCatalog {
         ),
     )
 
-    /** Rows gated out of every list (5.3). Empty since MiniCPM-V 4.6 passed WP1 acceptance (j) with the Q8_0 projector at 448 px. */
+    /** Rows gated out of every list. Empty since MiniCPM-V 4.6 passed the vision acceptance test with the Q8_0 projector at 448 px. */
     private val hidden: Set<String> = emptySet()
 
     val visible: List<CatalogModel> = models.filter { it.tier != ModelTier.LEGACY && it.id !in hidden }

@@ -28,7 +28,7 @@ import to.eyed.inferno.ui.components.SheetHeader
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Typography
 
-/** Multi-line editor for the system prompt (spec 5.6): applies to new turns, Save commits, Clear empties. */
+/** Multi-line editor for the system prompt: applies to new turns, Save commits, Clear empties. */
 @Composable
 fun SystemPromptSheet(current: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     var draft by rememberSaveable { mutableStateOf(current) }

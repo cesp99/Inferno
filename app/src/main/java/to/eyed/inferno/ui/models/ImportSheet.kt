@@ -36,7 +36,7 @@ import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.vm.AppViewModel
 
-// Import GGUF via SAF (spec 5.6 ModelManagerScreen): pick the text model, confirm a display name (empty = the
+// Import GGUF via SAF: pick the text model, confirm a display name (empty = the
 // GGUF header's name), import. A projector is attached afterwards from the imported row's menu, so the
 // repository can pair it with the import id it minted.
 

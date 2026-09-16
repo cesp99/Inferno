@@ -42,7 +42,7 @@ import to.eyed.inferno.ui.theme.Numeric
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.vm.AppViewModel
 
-// Context-length page (spec 5.6 ModelSheet "context"): Auto toggle with the resolved label, a 1,024-step slider
+// Context-length page of the model sheet: Auto toggle with the resolved label, a 1,024-step slider
 // whose label is an instant analytic estimate (AppViewModel.previewEstimate, no native call), the KV type
 // group (developer) and Apply. Hosted by ModelSheet and by the Settings screen, both power user and up.
 

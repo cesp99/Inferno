@@ -120,10 +120,10 @@ class CpuTopology(
  * tids with target = 1000 / targetTps ms, fed one `reportActualWorkDuration` per generated token, closed when the
  * turn ends. Sustained performance mode needs a Window, which this class has no access to: [sustainedRequested]
  * is true while a PerfPreset.MAX generation runs on a device that supports it; the Activity applies
- * `window.setSustainedPerformanceMode(it)` (WP5).
+ * `window.setSustainedPerformanceMode(it)`.
  *
  * [context] may be null (JVM tests): status stays NONE, headroom NaN, no hint session.
- * [beginGeneration] must run on the engine thread (contextWorkerTids takes a handle, spec 3.2).
+ * [beginGeneration] must run on the engine thread (contextWorkerTids takes a handle).
  */
 open class ThermalGovernor(
     context: Context?,

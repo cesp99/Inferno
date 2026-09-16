@@ -62,7 +62,7 @@ import to.eyed.inferno.ui.theme.rememberHaptics
 import to.eyed.inferno.ui.theme.whiteA
 
 /**
- * One of the two large model cards on the Create screen (12.5): name + tier, one-line blurb, the
+ * One of the two large model cards on the Create screen: name + tier, one-line blurb, the
  * "~12 s · 693 MB · OpenRAIL++" meta line, and a download strip whose content follows [download].
  * Selection is a white border (never a fill), exactly like OptionRow; the whole card is the radio button.
  */
@@ -131,7 +131,7 @@ private fun TierPill(label: String, active: Boolean) {
 
 /**
  * The bottom strip of a card. Every download state gets a distinct, quiet presentation; the wavy bar
- * (6.3) only waves while bytes flow and freezes flat when Paused.
+ * only waves while bytes flow and freezes flat when Paused.
  */
 @Composable
 private fun DownloadStrip(

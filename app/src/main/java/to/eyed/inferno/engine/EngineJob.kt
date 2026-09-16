@@ -18,7 +18,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.inferno.imagegen.JobGate
 
 /**
- * Process-wide "one native compute job at a time" gate (spec 12.3 d). The text engine (load, generate, count,
+ * Process-wide "one native compute job at a time" gate. The text engine (load, generate, count,
  * bench, unload), the vision encoder (part of generate) and the image-generation repository all take this
  * mutex before touching native code, so two ggml graphs can never run concurrently on an 8 GB phone: the
  * 2026-09-16 kernel panic came from exactly that kind of overlap. [owner] is a diagnostic tag for logs and the
@@ -74,7 +74,7 @@ object EngineJob : JobGate {
 }
 
 /**
- * Memory watchdog (spec 12.3 b): while a native job runs it polls availMem every 500 ms and fires [onLowMemory]
+ * Memory watchdog: while a native job runs it polls availMem every 500 ms and fires [onLowMemory]
  * once when it drops under 500 MB, so the job is cancelled (and the caller unloads) before the LMK or the kernel
  * intervene. [availRam] is ActivityManager.MemoryInfo.availMem on the device; 0 means "unknown" and is ignored.
  */

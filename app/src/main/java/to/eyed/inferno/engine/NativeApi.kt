@@ -109,7 +109,7 @@ internal fun validatePromptImages(model: LocalModel, images: List<PromptImage>, 
     }
 }
 
-/** Gemma 4 thinking switch: "<|think|>" at the very start of the system message (WP1 formatter contract). */
+/** Gemma 4 thinking switch: "<|think|>" at the very start of the system message (hand-rolled formatter contract). */
 internal const val GEMMA_THINK = "<|think|>"
 internal fun withGemmaThinkFlag(messages: List<PromptMessage>): List<PromptMessage> {
     val first = messages.firstOrNull()

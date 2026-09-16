@@ -70,7 +70,7 @@ import to.eyed.inferno.vm.ChatViewModel
 import to.eyed.inferno.vm.Screen
 import java.util.Locale
 
-// Settings (spec 5.6 SettingsSheet.kt). The body is one composable; SettingsScreen wraps it in a
+// Settings. The body is one composable; SettingsScreen wraps it in a
 // LargeFlexibleTopAppBar for the SETTINGS screen, SettingsSheet in an InfernoSheet for the sidebar footer.
 // Sub-pages open as sheets whose name lives in rememberSaveable.
 //
@@ -97,7 +97,7 @@ fun SettingsScreen(appVm: AppViewModel, chatVm: ChatViewModel, onBack: () -> Uni
     }
 }
 
-/** Sheet variant for the sidebar footer (WP7). */
+/** Sheet variant for the sidebar footer. */
 @Composable
 fun SettingsSheet(appVm: AppViewModel, chatVm: ChatViewModel, onDismiss: () -> Unit, onOpenBench: () -> Unit) {
     InfernoSheet(onDismiss = onDismiss) {

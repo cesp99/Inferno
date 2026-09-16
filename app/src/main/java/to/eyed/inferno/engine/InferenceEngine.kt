@@ -34,7 +34,7 @@ import to.eyed.inferno.models.ThinkingSpec
 /**
  * Kotlin owner of the native engine: one dedicated thread ("inferno-llama") for every LlamaNative call, the
  * process-wide [EngineJob] around every native job, a [StateFlow] of [EngineState], and cold [generate] flows.
- * Memory rules (spec 12.3): the budget gate refuses loads whose estimate exceeds 0.85 x budget, a 500 ms watchdog
+ * Memory rules: the budget gate refuses loads whose estimate exceeds 0.85 x budget, a 500 ms watchdog
  * cancels any native job when availMem < 500 MB and then unloads, and the thermal governor sets the thread count
  * per turn (and steps it down mid-turn on the cheap llama_set_n_threads path).
  *
@@ -88,7 +88,7 @@ class InferenceEngine internal constructor(
     private var appliedThreads: Int
         get() = _activeThreads.value
         set(v) { _activeThreads.value = v }
-    private var mmprojThreads = -1          // thread count the resident projector was created with (4.2)
+    private var mmprojThreads = -1          // thread count the resident projector was created with
     private var mmprojMaxTokens = -1        // image_max_tokens the resident projector was created with (residency key)
     /** Image detail the last load / turn asked for: countPromptTokens (fit) must build the same projector generate() will use. */
     private var requestedDetail: ImageDetail = ImageDetail.BALANCED
@@ -151,7 +151,7 @@ class InferenceEngine internal constructor(
                     watchdog.guard(onLowMemory = { lowMemory = true; native.cancel() }) {
                         withContext(engine) {
                             ensureBackendLocked()
-                            // Budget gate (12.3 a): never start a load the planner would have refused.
+                            // Budget gate: never start a load the planner would have refused.
                             val est = estimateLocked(model, config)
                             val avail = cpu.availRamBytes()
                             val need = if (visionAllowed && model.hasVision) est.totalBytes else est.totalBytes - est.visionBytes
@@ -250,7 +250,7 @@ class InferenceEngine internal constructor(
         }
     }
 
-    /** EngineCoordinator (imagegen): the LLM must be out of memory before stable-diffusion.cpp allocates (12.5). */
+    /** EngineCoordinator (imagegen): the LLM must be out of memory before stable-diffusion.cpp allocates. */
     override suspend fun releaseForImageGen() = unload()
 
     /** models.EngineAccess: the no_alloc estimate cache keeps the GGUF open, so a delete drops it first (engine thread). */
@@ -265,7 +265,7 @@ class InferenceEngine internal constructor(
         }
     }
 
-    /** Rebuilds threadpools when needed (4.2); the projector, if resident, is re-created lazily before the next image turn. */
+    /** Rebuilds threadpools when needed; the projector, if resident, is re-created lazily before the next image turn. */
     suspend fun setThreads(n: Int, pinBig: Boolean, poll: Int) = EngineJob.withJob("llm-threads") {
         withContext(engine) {
             val l = current ?: return@withContext
@@ -378,7 +378,7 @@ class InferenceEngine internal constructor(
                 val l = current ?: throw EngineException("No model loaded")
                 requestedDetail = imageDetail
                 val gemma4 = l.templateName == "gemma4"
-                // Gemma 4 has no assistant-side switch: WP1's formatter enables thinking with "<|think|>" at the start of the system message.
+                // Gemma 4 has no assistant-side switch: the hand-rolled formatter enables thinking with "<|think|>" at the start of the system message.
                 val assistantPrefix = if (gemma4) null else if (thinkingEnabled) thinking.enablePrefix else thinking.disablePrefix
                 val prompt = if (gemma4 && thinkingEnabled) withGemmaThinkFlag(messages) else messages
                 val parser = ThinkingParser(thinking.openTag, thinking.closeTag,
@@ -450,7 +450,7 @@ class InferenceEngine internal constructor(
                 withContext(NonCancellable + engine) {
                     thermal.endGeneration()
                     if (lowMemory) unloadLocked(NOT_ENOUGH_MEMORY) else {
-                        // Free the projector after an image turn when memory is tight (4.5 step 1).
+                        // Free the projector after an image turn when memory is tight.
                         if (images.isNotEmpty() && native.mmprojLoaded(model) && cpu.availRamBytes() < (1L shl 30)) { native.mmprojFree(model); mmprojThreads = -1 }
                         restoreStateLocked()
                     }
@@ -507,7 +507,7 @@ class InferenceEngine internal constructor(
     /**
      * RUNNING_CRITICAL (or a cached-process COMPLETE/MODERATE trim) while idle => projector + context freed, state
      * Suspended; RUNNING_LOW => projector only; BACKGROUND with keepModelLoaded=false => unload. Nothing is freed
-     * while a job runs. Android 14+ only delivers UI_HIDDEN/BACKGROUND, so WP5 may call [releaseForMemory] from its
+     * while a job runs. Android 14+ only delivers UI_HIDDEN/BACKGROUND, so the app may call [releaseForMemory] from its
      * own availMem poll to get the RUNNING_* behaviour.
      */
     @Suppress("DEPRECATION")   // RUNNING_* levels are still delivered on API 33 (minSdk); 34+ only sends UI_HIDDEN/BACKGROUND

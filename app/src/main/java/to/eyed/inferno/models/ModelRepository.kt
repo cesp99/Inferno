@@ -24,7 +24,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** What the repository needs from `engine/InferenceEngine` (WP2); `AppContainer` adapts the real engine to it. */
+/** What the repository needs from `engine/InferenceEngine`; `AppContainer` adapts the real engine to it. */
 interface EngineAccess {
     /** `engine.state.value.modelOrNull?.id`: loaded, loading, suspended or generating. */
     val loadedModelId: String?
@@ -32,13 +32,13 @@ interface EngineAccess {
     suspend fun unload()
     /** `LlamaNative.estimateCacheClear()` on the engine thread: the no_alloc estimate cache holds the file open. */
     suspend fun clearEstimateCache()
-    /** Image engine (12.5): id of the sd.cpp model that is resident or generating, else null. */
+    /** Image engine: id of the sd.cpp model that is resident or generating, else null. */
     val loadedImageModelId: String? get() = null
     /** Cancels any image run and frees the sd.cpp context (`ImageGenRepository.unload`). */
     suspend fun unloadImage() {}
 }
 
-/** The two `SettingsState` fields the download flow reads and writes (`data/AppPrefs`, WP4). */
+/** The two `SettingsState` fields the download flow reads and writes (`data/AppPrefs`). */
 interface DownloadPrefs {
     val allowMeteredDownloads: Boolean
     val selectedModelId: String?
@@ -86,8 +86,8 @@ class AndroidDownloadPlatform(private val context: Context) : DownloadPlatform {
 }
 
 /**
- * Single source of truth for "which models exist, where, and what is happening to them" (spec 5.3). Text models
- * (`ModelCatalog`) and image models (`ImageModelCatalog`, WP9b) share the download queue and the storage layout;
+ * Single source of truth for "which models exist, where, and what is happening to them". Text models
+ * (`ModelCatalog`) and image models (`ImageModelCatalog`) share the download queue and the storage layout;
  * text models appear in [entries], image models in [imageDownloads].
  *
  * Queue: one file at a time, inside [runQueue] on `DownloadService`'s coroutine. Everything the UI sees is
@@ -137,7 +137,7 @@ class ModelRepository(
         rows + extra + imports
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
-    /** Download state per image model id (WP9b's Create screen cards). */
+    /** Download state per image model id (the Create screen cards). */
     val imageDownloads: StateFlow<Map<String, DownloadState>> = combine(snapshot, transient) { s, t ->
         imageCatalog.associate { it.id to stateFor(it.id, s, t) }
     }.stateIn(scope, SharingStarted.Eagerly, emptyMap())

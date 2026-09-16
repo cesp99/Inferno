@@ -20,7 +20,7 @@ import to.eyed.inferno.vm.ImageGenViewModel
 import to.eyed.inferno.vm.InfernoVmFactory
 
 /**
- * Single activity (spec 5.1): splash until prefs are read, edge-to-edge, activity-scoped ViewModels, and the
+ * Single activity: splash until prefs are read, edge-to-edge, activity-scoped ViewModels, and the
  * two intent entry points (share-to-Inferno and the notification "Stop" action) both funnelled through
  * AppViewModel.enqueue. singleTop in the manifest makes a share while the app is open land in onNewIntent.
  */

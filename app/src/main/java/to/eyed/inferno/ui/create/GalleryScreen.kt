@@ -84,7 +84,7 @@ import to.eyed.inferno.vm.ChatViewModel
 import to.eyed.inferno.vm.ImageGenViewModel
 
 /**
- * Past generations as a 2-column grid (12.5). Long-press = prompt overlay with a two-tap delete; tap = the
+ * Past generations as a 2-column grid. Long-press = prompt overlay with a two-tap delete; tap = the
  * full-screen viewer, the thumbnail morphing into it through shared bounds. The open image id is saveable,
  * so rotation and process death land back in the viewer.
  */

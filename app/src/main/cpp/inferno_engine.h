@@ -2,7 +2,7 @@
 // Engine singleton: owns the llama model / context / mtmd projector / sampler / threadpools and
 // the token cache used for KV prefix reuse. No JNI types here (inferno_jni.cpp is the only glue).
 //
-// Threading contract (spec 4.2): every method runs on the single Kotlin engine thread except
+// Threading contract: every method runs on the single Kotlin engine thread except
 // cancel() and last_error(), which are callable from any thread and touch only the atomic flag /
 // the mutex-guarded error string.
 #include <atomic>
@@ -122,7 +122,7 @@ public:
     std::string last_error() const;
     void set_error(const std::string & msg);
 
-    // handle validation for the JNI layer (spec 4.3)
+    // handle validation for the JNI layer
     bool is_model(intptr_t h) const { return h != 0 && h == (intptr_t) model_; }
     bool is_ctx  (intptr_t h) const { return h != 0 && h == (intptr_t) ctx_; }
 

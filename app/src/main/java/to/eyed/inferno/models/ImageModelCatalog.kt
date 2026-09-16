@@ -6,7 +6,7 @@ import to.eyed.inferno.sd.ImageSampler
 import to.eyed.inferno.sd.ImageScheduler
 
 /**
- * One downloadable file of an image model. Deliberately a separate, minimal type rather than WP3's
+ * One downloadable file of an image model. Deliberately a separate, minimal type rather than the text catalog's
  * `ModelFileSpec`: image checkpoints have no `Quant` enum value that fits (sd.cpp GGUFs mix a q8_0 UNet
  * with an f16 text encoder) and the TAESD file is a safetensors, not a GGUF. Same URL pattern, byte-exact
  * sizes and LFS sha256 (from the HF API `?blobs=true`, 2026-09-16) so `ModelDownloader` verifies length and
@@ -26,7 +26,7 @@ data class ImageModelFile(
  * @property estSecondsBySize Measured (512) / pixel-scaled (384) wall time for one image at the default
  *   step count on the Seeker, 4 pinned A78 threads, TAESD decode, cool phone. Seeds the ETA model.
  * @property peakRamBytes Measured peak RSS for a 512 px image; shown on the card and used by the 0.85 x
- *   budget refusal rule (spec 12.3 a) together with `ImageEngine.estimateBytes`.
+ *   budget refusal rule together with `ImageEngine.estimateBytes`.
  */
 data class ImageCatalogModel(
     val spec: ImageModelSpec,
@@ -58,7 +58,7 @@ data class ImageCatalogModel(
 }
 
 /**
- * The two image models of v1 (spec 12.5) and the TAESD autoencoder they share. Both are SD 1.5-family,
+ * The two image models of v1 and the TAESD autoencoder they share. Both are SD 1.5-family,
  * which is why a single TAESD file serves both; it is stored in its own directory `files/models/taesd/`
  * so deleting one model never breaks the other. Files live under `files/models/<id>/<fileName>`, the same
  * layout `ModelFiles` uses for LLMs, so the storage bar and the downloader need no special case.

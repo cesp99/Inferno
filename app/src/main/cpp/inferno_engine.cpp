@@ -109,7 +109,7 @@ void Engine::backend_init(int min_log_prio, uint32_t big_mask) {
     log_install(min_log_prio);
     big_mask_ = big_mask;
     if (big_mask_ != 0) {
-        // Every thread ggml/clip spawns from the engine thread inherits this mask (spec 4.2).
+        // Every thread ggml/clip spawns from the engine thread inherits this mask.
         if (!cpu_set_affinity(big_mask_)) {
             LOGW("sched_setaffinity(0x%x) failed", big_mask_);
         }
@@ -227,7 +227,7 @@ void Engine::detect_template() {
     }
     if (arch_ == "gemma4") {
         // The built-in llama_chat_apply_template rejects the Gemma 4 Jinja ("try using --jinja"); the
-        // turn format is hand-rolled from the canonical template (spec 12.2).
+        // turn format is hand-rolled from the canonical template.
         tmpl_gemma4_ = true; tmpl_name_ = "gemma4"; tmpl_supported_ = true;
         return;
     }
@@ -380,7 +380,7 @@ llama_context_params Engine::context_params(const ContextParams & p) const {
     cp.kv_unified      = false;
     cp.no_perf         = true;
     if (model_ && (llama_model_is_hybrid(model_) || llama_model_is_recurrent(model_))) {
-        cp.n_rs_seq = 1;                       // one-token rewind without a checkpoint (spec 4.5 step 6)
+        cp.n_rs_seq = 1;                       // one-token rewind without a checkpoint
     }
     return cp;
 }

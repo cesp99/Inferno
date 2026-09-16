@@ -1,6 +1,6 @@
 package to.eyed.inferno.sd
 
-/** Shared contract of the image-generation engine (WP9a). Other packages import, never redefine. */
+/** Shared contract of the image-generation engine. Other packages import, never redefine. */
 
 enum class ImageArch { SD15, SDXL }
 

@@ -53,10 +53,10 @@ data class SettingsState(
     val perfPreset: PerfPreset = PerfPreset.AUTO,
     val threads: Int = 4,                       // 1..8; default = number of big cores (Advanced; preset writes it)
     val pinBigCores: Boolean = true,            // Advanced
-    val contextSize: Int = 0,                   // 0 = Auto (max): planner searches UP to the largest size that fits (5.2); else tokens, multiple of 1024
+    val contextSize: Int = 0,                   // 0 = Auto (max): planner searches UP to the largest size that fits; else tokens, multiple of 1024
     val kvCache: KvCachePref = KvCachePref.AUTO,
     val flashAttention: Boolean = true,         // Advanced; setKvCache(Q8_0/Q4_0) forces true and the toggle is disabled ("Required for quantized KV")
-    val useMmap: Boolean = true,                // Advanced; "false" selects LLAMA_LOAD_MODE_DIRECT_IO for repacked tensors (4.5 step 1)
+    val useMmap: Boolean = true,                // Advanced; "false" selects LLAMA_LOAD_MODE_DIRECT_IO for repacked tensors
     val poll: Int = 50,                         // Advanced (preset writes it)
     val keepModelLoaded: Boolean = true,        // keep weights in RAM while backgrounded
     // generation
@@ -80,7 +80,7 @@ data class SettingsState(
     val lastLoadCrashModelId: String? = null,
     /** JSON map modelId -> Calibration (engine/EngineTypes.kt); measured pp/tg/load/image-encode per model on this phone. */
     val calibration: Map<String, Calibration> = emptyMap(),
-    // ---- WP4 additions for image generation (12.5); additive to the 3.6 contract ----
+    // ---- image generation ----
     /** Image model chosen on the Create screen (ImageModelSpec.id). */
     val selectedImageModelId: String? = null,
     /** Learned seconds per denoise step keyed EtaModel.key(modelId, px) = "<imageModelId>:<px>"; the EtaStore view of this map feeds ImageGenRepository's ETA. */
@@ -109,7 +109,7 @@ private val Context.settingsStore: DataStore<Preferences> by preferencesDataStor
  * Every SettingsState field is one preference key (enums by name, GenerationParams / calibration as JSON). Unknown
  * or corrupt values fall back to the field default so a schema change never crashes an existing install.
  * [store] is injectable so tests can use a throw-away file instead of the process-wide "settings" store.
- * Also the [EtaStore] of the image-generation ETA model (12.5): the learned s/step map is just another field; and
+ * Also the [EtaStore] of the image-generation ETA model: the learned s/step map is just another field; and
  * the [DownloadPrefs] seam of `models/ModelRepository` (metered-network consent + selected model).
  */
 class AppPrefs(
@@ -131,7 +131,7 @@ class AppPrefs(
         store.edit { prefs -> prefs.write(transform(prefs.toState())) }
     }
 
-    // ---- convenience setters (5.4) ----
+    // ---- convenience setters ----
     suspend fun setPerfPreset(p: PerfPreset) = update { it.copy(perfPreset = p, threads = p.threads, pinBigCores = p.pin, poll = p.poll) }
     suspend fun setThreads(n: Int) = update { it.copy(threads = n.coerceIn(1, 8)) }
     suspend fun setPinBigCores(v: Boolean) = update { it.copy(pinBigCores = v) }

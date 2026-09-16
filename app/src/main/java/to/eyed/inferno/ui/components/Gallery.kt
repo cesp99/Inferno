@@ -38,8 +38,8 @@ import to.eyed.inferno.ui.theme.Meta
 import to.eyed.inferno.ui.theme.Numeric
 import to.eyed.inferno.ui.theme.Typography
 
-// Component gallery: one @Preview per component (spec 10 WP6) plus a scrolling screen that
-// MainActivity shows until WP5 wires InfernoRoot. Everything renders on pure black.
+// Component gallery: one @Preview per component plus a scrolling screen with all of them.
+// Everything renders on pure black.
 
 private const val PreviewBg = 0xFF000000L
 
@@ -149,7 +149,7 @@ fun NumericPreview() = InfernoTheme {
     }
 }
 
-/** Temporary home screen until WP5 lands InfernoRoot: every component, on black. */
+/** Every component on one scrolling screen, on black. A preview aid; the app never shows it. */
 @Composable
 fun ComponentGallery() {
     Column(

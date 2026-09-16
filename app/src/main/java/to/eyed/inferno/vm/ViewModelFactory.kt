@@ -8,7 +8,7 @@ import androidx.lifecycle.createSavedStateHandle
 import to.eyed.inferno.AppContainer
 
 /**
- * Activity-scoped factory (spec 5.5): every VM gets the container plus a [SavedStateHandle] so `screen`,
+ * Activity-scoped factory: every VM gets the container plus a [SavedStateHandle] so `screen`,
  * `activeId` and the pending attachment ids survive process death. No DI framework.
  */
 class InfernoVmFactory(private val container: AppContainer) : ViewModelProvider.Factory {

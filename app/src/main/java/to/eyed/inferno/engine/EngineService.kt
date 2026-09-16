@@ -17,7 +17,7 @@ import to.eyed.inferno.R
 
 /**
  * specialUse foreground service that keeps a user-started generation alive while the app is in the background.
- * Policy (spec 5.2): NOT started per message. InferenceEngine starts it from onAppForeground(false) only while a
+ * Policy: NOT started per message. InferenceEngine starts it from onAppForeground(false) only while a
  * generation (or, via EngineCoordinator.onImageJob, an image run) is running and stops it when the app returns or
  * the job ends, so a 2-second reply with the screen on never touches the notification shade. Tap opens MainActivity; "Stop" delivers EXTRA_ACTION = ACTION_STOP to
  * the singleTop activity (onNewIntent -> PendingAction.Stop -> chatVm.cancel()).
@@ -87,7 +87,7 @@ class EngineService : Service() {
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_HEADING = "heading"
         const val HEADING_TEXT = "Inferno is generating"
-        /** Second notification type (12.5): the image-generation repository passes this heading while it owns the job. */
+        /** Second notification type: the image-generation repository passes this heading while it owns the job. */
         const val HEADING_IMAGE = "Inferno is generating an image"
 
         // Start/stop bookkeeping. start()/stop() are called from the engine (any thread), onStartCommand on Main.

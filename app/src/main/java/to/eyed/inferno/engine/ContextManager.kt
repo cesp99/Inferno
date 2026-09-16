@@ -113,7 +113,7 @@ class ContextManager(private val engine: PlannerEngine) {
             if (down == null && vision) { vision = false; down = searchDown(start, false) }
             down ?: run {
                 val e = estimate(MIN_CTX)
-                // Mapped weights are evictable and never counted; the LMK margin is (5.2 step 6).
+                // Mapped weights are evictable and never counted; the LMK margin is.
                 val needBytes = e.modelResidentBytes + e.kvBytes + e.computeBytes + BUDGET_MARGIN
                 reason = "Needs about ${gb(needBytes)} GB free, ${gb(availRam)} GB available"
                 MIN_CTX
@@ -239,7 +239,7 @@ class ContextManager(private val engine: PlannerEngine) {
         return (nCtx.toLong() * nLayer * (nEmbdKGqa + nEmbdVGqa) * bytesPerElement).toLong()
     }
 
-    /** reserve = clamp(maxTokens or nCtx/8, 1024, 4096) when thinking is on, else 512 (5.2). */
+    /** reserve = clamp(maxTokens or nCtx/8, 1024, 4096) when thinking is on, else 512. */
     fun reserveFor(params: GenerationParams, nCtx: Int, thinkingOn: Boolean): Int =
         if (thinkingOn) (if (params.maxTokens > 0) params.maxTokens else nCtx / 8).coerceIn(1024, 4096) else 512
 
@@ -278,7 +278,7 @@ class ContextManager(private val engine: PlannerEngine) {
             val parts = listOfNotNull(systemPrompt?.takeIf { it.isNotBlank() }, summary?.takeIf { it.isNotBlank() }?.let { "Summary of the earlier conversation (your own notes):\n$it" })
             return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
         }
-        /** Planner gate: a plan is accepted when its estimate stays below this fraction of the budget (spec 5.2 step 4, 12.3 a). */
+        /** Planner gate: a plan is accepted when its estimate stays below this fraction of the budget. */
         const val BUDGET_GATE = 0.85
         /** Share of the budget Auto leaves free above the floor, so the load-time gate check has slack. */
         const val GROW_HEADROOM = 0.025

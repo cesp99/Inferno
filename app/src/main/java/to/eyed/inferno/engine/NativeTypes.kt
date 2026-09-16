@@ -57,7 +57,7 @@ object GStat { const val PROMPT_TOKENS = 0; const val REUSED_TOKENS = 1; const v
  * Layout of LlamaNative.estimateMemory(). All values in bytes.
  * MODEL = MODEL_RESIDENT + MODEL_MAPPED (total weight bytes, == llama_model_size() within 10 %).
  * MODEL_RESIDENT = weights that end up in anonymous RAM (repacked into CPU_KLEIDIAI / CPU_REPACK extra bufts);
- * MODEL_MAPPED = weights that stay file-backed on the plain CPU buffer (tensor_buft_overrides, 4.5 step 1) and are evictable.
+ * MODEL_MAPPED = weights that stay file-backed on the plain CPU buffer (tensor_buft_overrides) and are evictable.
  * CLIP_COMPUTE = encoder compute buffer for the largest allowed image (from mtmd_get_memory_usage, summed over all bufts).
  */
 object MemEst { const val MODEL = 0; const val KV = 1; const val COMPUTE = 2; const val MMPROJ = 3; const val DEVICE_TOTAL = 4

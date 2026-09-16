@@ -5,14 +5,14 @@ import android.content.Context
 import androidx.test.runner.AndroidJUnitRunner
 
 /**
- * Test-only Application: the manifest names `.InfernoApp` (WP5), and the instrumented process would die with
- * ClassNotFoundException before any test runs while that class does not exist yet. [TestRunner] swaps it in.
+ * Test-only Application: the manifest names `.InfernoApp`, and the instrumented process would die with
+ * ClassNotFoundException before any test runs if that class were ever missing. [TestRunner] swaps it in.
  */
 class TestApp : Application()
 
 /**
  * Instantiates [TestApp] instead of the manifest Application when the real one is not on the class path, so the
- * data/engine device tests run before WP5 lands and keep running unchanged (against the real app) afterwards.
+ * data/engine device tests do not depend on the real Application class.
  * Select it with `testInstrumentationRunner = "to.eyed.inferno.TestRunner"` (AGP rewrites the name of any
  * `<instrumentation>` in androidTest/AndroidManifest.xml to that property, so a manifest entry alone is ignored).
  * Without editing app/build.gradle.kts a Gradle init script sets the same property for one run:

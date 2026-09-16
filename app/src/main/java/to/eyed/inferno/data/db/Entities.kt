@@ -76,7 +76,7 @@ data class MessageWithImages(
 )
 
 /**
- * One finished text-to-image generation (12.5). The PNG lives at [path] (files/images/gen/<id>.png) and its
+ * One finished text-to-image generation. The PNG lives at [path] (files/images/gen/<id>.png) and its
  * 256 px thumb at [thumbPath]; deleting the row does not delete the files (ImageUtil.deleteGenerated does).
  * Generated images are not attachments: they never get a message_images row unless the user picks
  * "Use as attachment", which imports the PNG like any other picked image (new sha256 id under files/images).

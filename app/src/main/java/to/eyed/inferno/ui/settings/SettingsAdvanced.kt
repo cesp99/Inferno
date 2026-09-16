@@ -42,7 +42,7 @@ import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.ChatViewModel
 import androidx.core.net.toUri
 
-// Settings > Advanced (developer tier) / About / Danger zone / footer (spec 5.6).
+// Settings > Advanced (developer tier) / About / Danger zone / footer.
 
 private val THREAD_OPTIONS = listOf(1, 2, 3, 4, 6, 8)
 private val POLL_OPTIONS = listOf(0, 50, 100)

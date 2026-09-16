@@ -37,7 +37,7 @@ import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.vm.AppViewModel
 import java.util.Locale
 
-// The Generation section as a reusable page (spec 5.6 SamplingPage.kt): "use the model's sampling" toggle, the
+// The Generation section as a reusable page: "use the model's sampling" toggle, the
 // five expressive sliders (disabled while the model defaults apply, showing the model's values), max tokens and
 // Reset. Used by ModelSheet ("Generation") and the Settings screen.
 

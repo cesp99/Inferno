@@ -1,4 +1,4 @@
-// Engine: GGUF header facts and the no_alloc memory estimate (spec 4.5 step 10).
+// Engine: GGUF header facts and the no_alloc memory estimate.
 #include "inferno_engine.h"
 
 #include <algorithm>

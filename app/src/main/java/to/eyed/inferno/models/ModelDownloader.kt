@@ -36,7 +36,7 @@ import kotlin.coroutines.resumeWithException
 class DownloadException(message: String, val resumable: Boolean) : Exception(message)
 
 /**
- * Resumable HTTP download of one [DownloadableFile] into `dest` (spec 5.3). The transfer goes to `dest.part`, its
+ * Resumable HTTP download of one [DownloadableFile] into `dest`. The transfer goes to `dest.part`, its
  * bookkeeping to `dest.part.json` (written before the first byte); the complete file is renamed into place only
  * after size (+ sha256 when known) + magic verification, so a file that exists at `dest` is always usable.
  *

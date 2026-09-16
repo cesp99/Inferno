@@ -11,7 +11,7 @@ import to.eyed.inferno.imagegen.GenerationRecord
 import java.util.UUID
 
 /**
- * Persistence of finished text-to-image generations (12.5): the PNG + 256 px thumb go under files/images/gen/
+ * Persistence of finished text-to-image generations: the PNG + 256 px thumb go under files/images/gen/
  * through [ImageUtil], the metadata into the generated_images table. The row owns the files, so [delete] is the
  * only path that removes them and ImageUtil.sweepOrphans never looks into gen/.
  */

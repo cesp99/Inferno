@@ -9,7 +9,7 @@ import to.eyed.inferno.sd.ImageGenEvent
 import to.eyed.inferno.sd.ImageGenRequest
 import to.eyed.inferno.sd.ImageModelSpec
 
-/** App-level image-generation types (WP9b). The engine contract lives in `to.eyed.inferno.sd`. */
+/** App-level image-generation types. The engine contract lives in `to.eyed.inferno.sd`. */
 
 /** Output size presets of the Create screen. Both SD 1.5 picks were distilled at 512; 384 is the fast option. */
 enum class ImageSizePreset(val px: Int) {
@@ -49,7 +49,7 @@ data class GenerationMeta(
     val createdAt: Long,
 )
 
-/** One persisted generation (mirrors `GeneratedImageEntity`; WP4 maps between the two). */
+/** One persisted generation (mirrors `GeneratedImageEntity`; the data layer maps between the two). */
 data class GenerationRecord(
     val id: String,
     val modelId: String,
@@ -106,27 +106,27 @@ sealed interface ImageGenUiState {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Seams towards the other work packages. Implemented in the composition root (WP5); faked in tests.
+// Seams towards the other packages. Implemented in the composition root; faked in tests.
 
-/** Implemented by the LLM side (WP2): unload the text model so only one native engine is resident. */
+/** Implemented by the LLM side: unload the text model so only one native engine is resident. */
 fun interface EngineCoordinator {
     suspend fun releaseForImageGen()
 
     /**
      * An image run (load + generate) is starting / has ended. The app side keeps the process alive with the
      * foreground service (EngineService, HEADING_IMAGE) while a run is active and the app is in the background,
-     * exactly as it does for a text turn (12.5); a 30-90 s SD run in a plain cached process is frozen or killed.
+     * exactly as it does for a text turn; a 30-90 s SD run in a plain cached process is frozen or killed.
      * Default no-op so fakes and tests stay one lambda.
      */
     fun onImageJob(active: Boolean, modelName: String) {}
 }
 
-/** The process-wide single-native-job mutex (spec 12.3 d), shared with text and vision jobs. */
+/** The process-wide single-native-job mutex, shared with text and vision jobs. */
 interface JobGate {
     suspend fun <T> withJob(tag: String, block: suspend () -> T): T
 }
 
-/** Writes the PNG + 256 px thumb under `files/images/gen/` and the Room row (WP4). */
+/** Writes the PNG + 256 px thumb under `files/images/gen/` and the Room row. */
 fun interface GeneratedImageStore {
     suspend fun save(png: ByteArray, meta: GenerationMeta): GenerationRecord
 }
@@ -137,7 +137,7 @@ interface EtaStore {
     suspend fun save(values: Map<String, Float>)
 }
 
-/** Resolves downloaded files; null when the file is missing or incomplete (WP3's `ModelFiles` layout). */
+/** Resolves downloaded files; null when the file is missing or incomplete (the `ModelFiles` layout). */
 interface ImageModelFiles {
     fun modelPath(model: ImageCatalogModel): String?
     fun taesdPath(): String?

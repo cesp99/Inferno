@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** WP1 acceptance (b): library loads, system info reports the expected ISA flags, topology matches the Seeker. */
+/** Smoke test: library loads, system info reports the expected ISA flags, topology matches the Seeker. */
 @RunWith(AndroidJUnit4::class)
 class NativeSmokeTest {
 

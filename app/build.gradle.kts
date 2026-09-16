@@ -43,7 +43,7 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
-        // WP4's runner: swaps in TestApp when the manifest Application is absent, otherwise runs against InfernoApp.
+        // Test runner: swaps in TestApp when the manifest Application is absent, otherwise runs against InfernoApp.
         testInstrumentationRunner = "to.eyed.inferno.TestRunner"
 
         ndk { abiFilters += listOf("arm64-v8a") }   // 64-bit ARM only; every phone that can run this is arm64

@@ -160,7 +160,7 @@ object S {
     const val dragHandle = "Drag handle"
     const val selected = "Selected"
 
-    // Chat UI (WP7 additions)
+    // Chat UI
     const val createImage = "Create image"
     const val gallery = "Gallery"
     const val generatingImage = "Generating image…"
@@ -210,7 +210,7 @@ object S {
     const val thinkOn = "Thinking on"
     const val thinkOff = "Thinking off"
 
-    // ---- WP8: models / settings / onboarding / bench ----
+    // ---- models / settings / onboarding / bench ----
     const val load = "Load"
     const val loaded = "Loaded"
     const val notDownloaded = "Not downloaded"
@@ -368,7 +368,7 @@ object S {
     const val chooseModelForBench = "Benchmarks run on the loaded model."
     val thermalNames = listOf("nominal", "light", "moderate", "severe", "critical", "emergency", "shutdown")
 
-    // Create image / Gallery (WP9b-ui)
+    // Create image / Gallery
     const val create = "Create"
     const val describeImage = "Describe the image…"
     const val generate = "Generate"
@@ -416,7 +416,7 @@ object S {
         return if (r == 0) "~$m min" else "~$m min $r s"
     }
 
-    /** "8.1 s" / "1 min 8 s" (6.2): one decimal under a minute, whole seconds above. */
+    /** "8.1 s" / "1 min 8 s": one decimal under a minute, whole seconds above. */
     fun duration(ms: Long): String {
         val s = ms / 1000.0
         if (s < 60) return String.format(java.util.Locale.US, "%.1f s", s)

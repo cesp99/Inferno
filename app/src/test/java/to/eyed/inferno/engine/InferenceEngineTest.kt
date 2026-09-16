@@ -120,7 +120,7 @@ class InferenceEngineTest {
         assertTrue(events.contains(GenerationEvent.Resuming(LoadPhase.VISION)))
         assertTrue(native.calls.any { it == "mmprojLoad(threads=4,maxTok=512)" })
         assertEquals(4L * GB - 500 * MB, native.lastAvailMem)        // encoderPeakBytes subtracted for the native pre-encode check
-        // A following text-only turn releases the projector (memory rule, spec 8).
+        // A following text-only turn releases the projector (memory rule).
         native.startRc = 0
         gen().toList()
         assertTrue(native.calls.contains("mmprojFree"))

@@ -48,7 +48,7 @@ object ImageMath {
 
     /**
      * Long edge handed to the vision encoder: min(detail.maxEdgePx, catalog cap) = FAST 336, BALANCED 448, HIGH the
-     * catalog `maxImageEdgePx` (12.2). Same rule as engine ContextManager.imageEdgeCap(model, detail), which is
+     * catalog `maxImageEdgePx`. Same rule as engine ContextManager.imageEdgeCap(model, detail), which is
      * the entry point callers with a LocalModel should use (see [ImageUtil.toPromptImage]).
      */
     fun promptEdge(detail: ImageDetail, catalogMaxEdgePx: Int = Int.MAX_VALUE): Int =
@@ -82,7 +82,7 @@ object ImageMath {
     }
 }
 
-/** Where a generated PNG landed (12.5). */
+/** Where a generated PNG landed. */
 data class GeneratedFiles(val id: String, val path: String, val thumbPath: String)
 
 class ImageUtil(private val context: Context) {
@@ -165,7 +165,7 @@ class ImageUtil(private val context: Context) {
     }
 
     /**
-     * Startup sweep (5.1): delete every attachment file with no message_images row whose newest file is older than
+     * Startup sweep: delete every attachment file with no message_images row whose newest file is older than
      * [olderThanMs] (attachments picked but never sent, process death before send). Recent files are kept because
      * they may be sitting in the composer right now. gen/ is skipped: generated images are owned by their DB row.
      */
@@ -187,7 +187,7 @@ class ImageUtil(private val context: Context) {
     /** cache/camera: system-camera captures already imported into files/images. */
     suspend fun clearCache() = withContext(Dispatchers.IO) { cameraDir.listFiles()?.forEach { it.delete() }; Unit }
 
-    // ---- generated images (12.5) ----
+    // ---- generated images ----
 
     /** Stores an ImageGenEvent.Done PNG as files/images/gen/<id>.png plus a 256 px JPEG thumb. */
     suspend fun saveGenerated(png: ByteArray, id: String = UUID.randomUUID().toString()): GeneratedFiles = withContext(Dispatchers.IO) {

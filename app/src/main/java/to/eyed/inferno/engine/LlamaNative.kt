@@ -11,7 +11,7 @@ import java.nio.charset.CodingErrorAction
  * `general.name`/`general.description` may contain 4-byte code points, which NewStringUTF (modified UTF-8) rejects
  * and CheckJNI aborts on. Kotlin decodes with [utf8] (CharsetDecoder, REPLACE).
  *
- * Template notes (WP1): Gemma 4 (`arch == "gemma4"`) is rendered by a hand-rolled formatter
+ * Template notes: Gemma 4 (`arch == "gemma4"`) is rendered by a hand-rolled formatter
  * (`templateName == "gemma4"`, `<|turn>role ... <turn|>`); put "<|think|>" at the very start of the system
  * message content to enable its thinking mode (same output as the official enable_thinking=true). Unknown
  * Jinja templates fall back to chatml (`templateSupported == 0`). [modelSetTemplate] forces a built-in name.
@@ -20,7 +20,7 @@ object LlamaNative {
     init { System.loadLibrary("inferno") }
 
     // lifecycle
-    @JvmStatic external fun backendInit(minLogPriority: Int, bigMask: Int)      // android.util.Log priority (DEBUG=3 .. ERROR=6); bigMask -> sched_setaffinity of the engine thread (4.2)
+    @JvmStatic external fun backendInit(minLogPriority: Int, bigMask: Int)      // android.util.Log priority (DEBUG=3 .. ERROR=6); bigMask -> sched_setaffinity of the engine thread
     @JvmStatic external fun backendFree()
     @JvmStatic external fun systemInfo(): String                                // llama_print_system_info() (ASCII)
     @JvmStatic external fun setLogPriority(minLogPriority: Int)                 // live change of the backendInit floor; any thread
@@ -35,7 +35,7 @@ object LlamaNative {
     @JvmStatic external fun modelInfoNumbers(model: Long): LongArray            // see MInfo.*; HAS_VISION is 1 only while a vision projector is resident
     @JvmStatic external fun modelInfoStrings(model: Long): Array<ByteArray>     // see MInfoS.*; raw UTF-8
     @JvmStatic external fun modelMetaStr(model: Long, key: String): ByteArray?  // llama_model_meta_val_str, raw UTF-8
-    /** WP1 addition: null/"" = auto-detect, "gemma4" = hand-rolled Gemma 4, else a llama built-in template name (e.g. "chatml" to disable MiniCPM-V thinking). */
+    /** null/"" = auto-detect, "gemma4" = hand-rolled Gemma 4, else a llama built-in template name (e.g. "chatml" to disable MiniCPM-V thinking). */
     @JvmStatic external fun modelSetTemplate(model: Long, name: String?)
     /** Wraps mtmd_init_from_file only (text weights untouched). imageMaxTokens = 0 => projector default. progress phase LOAD. */
     @JvmStatic external fun mmprojLoad(model: Long, mmprojPath: String, nThreads: Int, imageMinTokens: Int, imageMaxTokens: Int,
@@ -50,7 +50,7 @@ object LlamaNative {
     /** Rebuilds both ggml threadpools (cpumask/poll cannot be changed in place, 4.2); cheap path only when just nGen shrinks. */
     @JvmStatic external fun contextSetThreads(ctx: Long, nGen: Int, nBatch: Int, bigCoresOnly: Boolean, poll: Int): Boolean
     @JvmStatic external fun contextWorkerTids(ctx: Long): IntArray               // engine thread tid + threadpool worker tids (ADPF session, 5.2)
-    /** MemEst.*; no weights loaded. The no_alloc llama_model is cached per modelPath inside the Engine (4.5 step 10), so repeated calls cost one llama_init_from_model. */
+    /** MemEst.*; no weights loaded. The no_alloc llama_model is cached per modelPath inside the Engine, so repeated calls cost one llama_init_from_model. */
     @JvmStatic external fun estimateMemory(modelPath: String, mmprojPath: String?, params: IntArray): LongArray   // empty array on error (lastError)
     @JvmStatic external fun estimateCacheClear()                                 // drops the cached no_alloc models (called from unload / delete)
 
@@ -65,7 +65,7 @@ object LlamaNative {
     // generation (pull-based)
     /** 0 ok · 1 cancelled · 2 prompt does not fit · -1 no context · -2 tokenize/template failed · -3 decode failed
      *  · -4 an image chunk has more tokens than n_batch (Kotlin planned the batch wrong; never let the helper split it)
-     *  · -5 not enough free memory for the image encode (pre-encode check, 4.5 step 7: availMemBytes < CLIP_COMPUTE + 400 MB;
+     *  · -5 not enough free memory for the image encode (pre-encode check: availMemBytes < CLIP_COMPUTE + 400 MB;
      *       pass availMem minus the catalog encoderPeakBytes so the peak is part of the check; <= 0 skips it)
      *  · -6 mmproj not loaded but prompt has images */
     @JvmStatic external fun generateStart(ctx: Long, messages: Array<NativeChatMessage>, images: Array<NativeImage>,
@@ -74,11 +74,11 @@ object LlamaNative {
     @JvmStatic external fun generateNext(ctx: Long): ByteArray?                  // UTF-8 piece (may be empty); null == finished
     @JvmStatic external fun generateFinishReason(ctx: Long): Int                 // NFinish.*
     @JvmStatic external fun generateStats(ctx: Long): DoubleArray                // GStat.*
-    /** Any thread. Sets the singleton's atomic cancel flag only; takes no handle and dereferences nothing (4.3). */
+    /** Any thread. Sets the singleton's atomic cancel flag only; takes no handle and dereferences nothing. */
     @JvmStatic external fun cancel()
 
     // kv cache
-    @JvmStatic external fun kvClear(ctx: Long)                                   // also drops all state checkpoints (4.5 step 6)
+    @JvmStatic external fun kvClear(ctx: Long)                                   // also drops all state checkpoints
     @JvmStatic external fun kvUsedTokens(ctx: Long): Int                         // cached prompt+generated cells
     @JvmStatic external fun kvNPast(ctx: Long): Int                              // positions used (differs from tokens for M-RoPE)
 

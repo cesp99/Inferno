@@ -96,7 +96,7 @@ import to.eyed.inferno.vm.isBusy
 import java.io.File
 
 /**
- * Create image (12.5): the hero canvas (progress / result) above the two model cards and the options card,
+ * Create image: the hero canvas (progress / result) above the two model cards and the options card,
  * with the prompt composer and the morphing Generate CTA docked at the bottom, thumb-reachable. The
  * full-screen viewer swaps in through shared bounds when the result is tapped.
  */
@@ -112,7 +112,7 @@ fun CreateScreen(imageVm: ImageGenViewModel, appVm: AppViewModel, chatVm: ChatVi
     val haptics = rememberHaptics()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
 
-    // Done -> one Confirm, Error -> one Reject; only while the activity is RESUMED (6.7).
+    // Done -> one Confirm, Error -> one Reject; only while the activity is RESUMED.
     LaunchedEffect(state::class) {
         if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
         when (state) {
@@ -227,7 +227,7 @@ private fun CreateContent(
             )
             Spacer(Modifier.height(24.dp))
         }
-        // The one gradient the language allows (6.2): the list fades under the docked composer.
+        // The one gradient the language allows: the list fades under the docked composer.
         Box(Modifier.fillMaxWidth().height(24.dp).background(Brush.verticalGradient(0f to Color.Transparent, 1f to Ink.Pitch)))
         Column(Modifier.background(Ink.Pitch).padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
             PromptComposer(prompt, onValueChange = imageVm::setPrompt)
@@ -352,7 +352,7 @@ fun rememberImageActions(imageVm: ImageGenViewModel, appVm: AppViewModel, chatVm
                     context.startActivity(Intent.createChooser(send, null))
                 }
             },
-            // "Use as attachment": a fresh chat with the PNG in the composer (6.1 flow 9 rules apply).
+            // "Use as attachment": a fresh chat with the PNG in the composer (same rules as a camera attachment).
             attach = { record ->
                 if (chatVm.gen.value.isBusy) appVm.notice(S.finishCurrentAnswer)
                 else {

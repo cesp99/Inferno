@@ -69,7 +69,7 @@ import to.eyed.inferno.ui.theme.layoutSpec
 import to.eyed.inferno.ui.theme.rememberHaptics
 import java.util.Locale
 
-// One model row (spec 5.6 ModelCards.kt). Lives inside a SettingsCard: the parent adds the dividers. The row is
+// One model row. Lives inside a SettingsCard: the parent adds the dividers. The row is
 // the tap target ("Load") when the model is on disk; the download states unfold underneath the subtitle with the
 // wavy bar, so the title never moves while the bytes arrive.
 

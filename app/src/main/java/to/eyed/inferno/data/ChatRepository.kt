@@ -184,7 +184,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         const val ROLE_SUMMARY = "summary"
         const val TITLE_MAX = 48
 
-        /** Title rule (5.4): first non-blank line of the first user message, trimmed to 48 chars + "…". */
+        /** Title rule: first non-blank line of the first user message, trimmed to 48 chars + "…". */
         fun titleFrom(text: String): String {
             val line = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return ""
             return if (line.length <= TITLE_MAX) line else line.take(TITLE_MAX).trimEnd() + "…"

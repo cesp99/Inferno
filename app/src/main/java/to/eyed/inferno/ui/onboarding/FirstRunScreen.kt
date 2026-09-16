@@ -61,7 +61,7 @@ import to.eyed.inferno.ui.theme.layoutSpec
 import to.eyed.inferno.vm.AppViewModel
 import java.util.Locale
 
-// First run (spec 6.1 flow 2): the mark, the promise, one recommended model with the wavy download inline, and
+// First run: the mark, the promise, one recommended model with the wavy download inline, and
 // the two alternative paths. The metered confirm comes from Root, the auto-load from AppViewModel.firstRunAutoLoad.
 
 @Composable

@@ -77,9 +77,9 @@ import to.eyed.inferno.vm.Screen
 import to.eyed.inferno.vm.isBusy
 
 /**
- * Screen switch + global sheets (spec 5.6 Root.kt): the onboarding gates, the six screens, the metered-data
+ * Screen switch + global sheets: the onboarding gates, the six screens, the metered-data
  * sheet and the global notices (error card, thermal chip).
- * Predictive back order (6.7): sheets (M3) > screen (MODELS/BENCH/... -> CHAT with a scale/translate/alpha preview) > system.
+ * Predictive back order: sheets (M3) > screen (MODELS/BENCH/... -> CHAT with a scale/translate/alpha preview) > system.
  */
 @Composable
 fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchViewModel, imageVm: ImageGenViewModel) {
@@ -99,7 +99,7 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
     CompositionLocalProvider(LocalAnimations provides settings.streamingAnimations, LocalHaptics provides settings.haptics) {
         val haptics = rememberHaptics()
 
-        // Notifications permission, the single rule (5.6): asked once before the first download or send, never again.
+        // Notifications permission, the single rule: asked once before the first download or send, never again.
         val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
         val ensureNotifications: () -> Unit = {
             if (!settings.notificationsAsked) {
@@ -110,7 +110,7 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
             }
         }
 
-        // Model Ready -> one Confirm, only on a load completing (Loading -> Ready) and only while RESUMED (6.7).
+        // Model Ready -> one Confirm, only on a load completing (Loading -> Ready) and only while RESUMED.
         // Keyed on the transition, not on `is Ready`: every turn goes Ready -> Generating -> Ready and ChatRoot
         // already plays the Done confirm.
         LaunchedEffect(Unit) {
@@ -128,7 +128,7 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
                 PendingAction.Stop -> { chatVm.cancel(); appVm.consumePending() }
                 is PendingAction.Share -> {
                     // On a cold start the share is enqueued before prefs are read, while showFirstRun is still false:
-                    // decide from the suspending check instead (ignored on FirstRun, 6.1 flow 9).
+                    // decide from the suspending check instead (ignored on FirstRun).
                     val firstRun = container.isCpuSupported && appVm.firstRunAfterPrefs()
                     when {
                         !container.isCpuSupported || firstRun -> Unit
@@ -217,7 +217,7 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
     }
 }
 
-/** "Download 1.9 GB over mobile data?" [Wait for Wi-Fi | Download anyway | Always allow] (6.1 flow 2). */
+/** "Download 1.9 GB over mobile data?" [Wait for Wi-Fi | Download anyway | Always allow]. */
 @Composable
 private fun MeteredConfirmSheet(name: String, bytes: Long, onWait: () -> Unit, onDownload: (always: Boolean) -> Unit) {
     InfernoSheet(onDismiss = onWait) {

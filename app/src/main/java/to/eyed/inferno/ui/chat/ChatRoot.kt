@@ -97,7 +97,7 @@ import to.eyed.inferno.vm.Screen
 import to.eyed.inferno.vm.isBusy
 
 /**
- * Chat shell (spec 5.6 ChatRoot): permanent 300 dp pane from the expanded width class, a modal drawer
+ * Chat shell: permanent 300 dp pane from the expanded width class, a modal drawer
  * below it; top nav, the reversed message list with the composer overlaid, the jump pill, the
  * in-tree image viewer (shared bounds) and the small sheets (turn details, rename, edit). Everything
  * purely visual lives here in rememberSaveable; everything else is read from the ViewModels.
@@ -142,7 +142,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     }
     val noVisionReason = if (loaded != null && loaded.hasVision && !loaded.visionAllowed) S.noMemoryForVision else S.noVision
     val thinkingAvailable = loaded?.model?.catalog?.thinking?.hasTags == true
-    // Idle with a selected, downloaded model is still sendable: the VM reloads and queues the turn (12.5).
+    // Idle with a selected, downloaded model is still sendable: the VM reloads and queues the turn.
     val idleLoadable = settings.selectedModelId?.let { id -> models.any { it.id == id && it.isDownloaded } } == true
     val disabledReason = when {
         engine is EngineState.Idle && !idleLoadable -> S.chooseModelToStart

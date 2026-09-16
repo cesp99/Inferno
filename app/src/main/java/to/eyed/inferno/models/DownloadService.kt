@@ -20,15 +20,15 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * dataSync foreground service that drives [ModelRepository.runQueue] and shows one progress notification
- * (spec 5.3). It exists only so a multi-GB transfer survives the app going to the background; every decision
+ * dataSync foreground service that drives [ModelRepository.runQueue] and shows one progress notification.
+ * It exists only so a multi-GB transfer survives the app going to the background; every decision
  * (queue order, pause reasons, resume policy) lives in the repository, which the Application exposes through
  * [Host]. Holds a PARTIAL_WAKE_LOCK (30 min timeout, renewed while a file keeps transferring) + a high-performance
  * Wi-Fi lock while a file transfers; both are released in `finally`.
  */
 class DownloadService : Service() {
 
-    /** Implemented by `InfernoApp` (WP5): `override val modelRepository get() = container.models`. */
+    /** Implemented by `InfernoApp`: `override val modelRepository get() = container.models`. */
     interface Host { val modelRepository: ModelRepository }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

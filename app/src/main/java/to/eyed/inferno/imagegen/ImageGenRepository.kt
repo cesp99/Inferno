@@ -27,7 +27,7 @@ import to.eyed.inferno.sd.ImageModelSpec
  * [GeneratedImageStore]. The model stays loaded after a run so "Regenerate" is instant; the LLM side
  * calls [unload] through the same coordinator pattern before it loads a text model.
  *
- * @param memoryBudgetBytes Device memory budget used by the 0.85 x refusal rule (spec 12.3 a);
+ * @param memoryBudgetBytes Device memory budget used by the 0.85 x refusal rule;
  *   the default never refuses (the engine's own 500 MB watchdog still protects the run).
  */
 class ImageGenRepository(
@@ -257,7 +257,7 @@ class ImageGenRepository(
         try { android.util.Log.w("Inferno/ImageGen", msg) } catch (e: RuntimeException) { println("W Inferno/ImageGen: $msg") }
     }
 
-    /** UI strings live in ui/Strings.kt (WP6); these are the data-layer messages that end up in Error(). */
+    /** UI strings live in ui/Strings.kt; these are the data-layer messages that end up in Error(). */
     private object Msg {
         const val UNKNOWN_MODEL = "Unknown image model"
         const val NOT_ENOUGH_MEMORY = "Not enough memory to load this model"
@@ -274,7 +274,7 @@ class ImageGenRepository(
     }
 }
 
-/** Thin adapter over the real engine (WP9a) so the repository depends on the [ImageEngineApi] seam only. */
+/** Thin adapter over the real engine so the repository depends on the [ImageEngineApi] seam only. */
 class ImageEngineAdapter(private val engine: ImageEngine) : ImageEngineApi {
     override val state: StateFlow<ImageEngineState> get() = engine.state
     override suspend fun load(spec: ImageModelSpec, modelPath: String, taesdPath: String) =
@@ -286,7 +286,7 @@ class ImageEngineAdapter(private val engine: ImageEngine) : ImageEngineApi {
 
 /**
  * Default file layout: `<root>/<modelId>/<fileName>` and `<root>/taesd/<fileName>`, where root is
- * `filesDir/models` (the same directory WP3's `ModelFiles` manages). A file counts as present only when
+ * `filesDir/models` (the same directory `ModelFiles` manages). A file counts as present only when
  * its length equals the catalog size, so a torn download shows as "Download", never as a crash in sd.cpp.
  */
 class DefaultImageModelFiles(private val root: File) : ImageModelFiles {

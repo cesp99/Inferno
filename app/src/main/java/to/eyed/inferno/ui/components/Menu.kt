@@ -66,7 +66,7 @@ fun GlassMenu(
 }
 
 /**
- * Same menu, card radius and a 4 dp gap below the anchor - the variant the model cards use (WP8). Kept
+ * Same menu, card radius and a 4 dp gap below the anchor - the variant the model cards use. Kept
  * as a thin alias over [GlassMenu] so both call-site styles share one implementation.
  */
 @Composable
@@ -136,7 +136,7 @@ fun MenuConfirmRow(
 }
 
 /**
- * Menu row with an optional icon and an `enabled` flag (WP8 model cards). Visually matches
+ * Menu row with an optional icon and an `enabled` flag (the model cards). Visually matches
  * [MenuActionRow]; prefer that one when the row always has an icon.
  */
 @Composable

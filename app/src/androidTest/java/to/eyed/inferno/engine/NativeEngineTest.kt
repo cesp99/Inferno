@@ -16,7 +16,7 @@ import to.eyed.inferno.engine.NativeTestSupport.runTurn
 import kotlin.concurrent.thread
 
 /**
- * WP1 acceptance (c)-(h), (k) on real models. Every native call happens on the instrumentation thread (the
+ * Native engine acceptance tests on real models. Every native call happens on the instrumentation thread (the
  * engine-thread rule); only cancel() is issued from a helper thread. Models are read from
  * /data/local/tmp/inferno/models (world-readable) or files/models/<id>/.
  */
@@ -253,7 +253,7 @@ class NativeEngineTest {
         Log.i(TAG, "tids(4 pinned)=${tids4.joinToString()} cpus=${tids4.map(NativeTestSupport::cpusAllowed)}")
         assertEquals(4, tids4.size)
         tids4.map(NativeTestSupport::cpusAllowed).forEach { assertEquals("4-7", it) }
-        // cheap path (spec 4.2 a): only the counts shrink => llama_set_n_threads, pools untouched
+        // cheap path: only the counts shrink => llama_set_n_threads, pools untouched
         assertTrue(LlamaNative.contextSetThreads(ctx, 2, 2, true, 50))
         assertEquals(4, LlamaNative.contextWorkerTids(ctx).size)
         // mask/poll change => both pools rebuilt: 4 threads, unpinned

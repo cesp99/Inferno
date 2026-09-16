@@ -32,7 +32,7 @@ import to.eyed.inferno.sd.ImageEngine
 import java.util.concurrent.TimeUnit
 
 /**
- * Composition root (spec 5.1): the only file that constructs the other packages. No DI framework; everything
+ * Composition root: the only file that constructs the other packages. No DI framework; everything
  * is a plain `val` created in dependency order. Construction touches no native code: the CPU gate
  * ([isCpuSupported]) is read from /proc before anything could call System.loadLibrary, and both engines bind
  * their JNI objects lazily on first use, so an unsupported phone can still render UnsupportedCpuScreen.
@@ -71,14 +71,14 @@ class AppContainer(app: Application) {
     }
     val models = ModelRepository(modelFiles, downloader, engineAccess, prefs, AndroidDownloadPlatform(app), appScope)
 
-    // ---- image generation (12.5) ----
+    // ---- image generation ----
     val imageEngine = ImageEngine(threads = IMAGE_THREADS, context = app)
     val generatedImages = GeneratedImageStoreImpl(db.generatedImages(), images)
     val imageGen = ImageGenRepository(
         engine = ImageEngineAdapter(imageEngine),
         files = DefaultImageModelFiles(modelFiles.root),
         coordinator = engine,                       // releaseForImageGen == InferenceEngine.unload()
-        jobGate = EngineJob,                        // the one process-wide native-job mutex (12.3 d)
+        jobGate = EngineJob,                        // the one process-wide native-job mutex
         store = generatedImages,
         etaStore = prefs,
         scope = appScope,
@@ -94,7 +94,7 @@ class AppContainer(app: Application) {
     }
 
     companion object {
-        /** Fixed at load time by sd.cpp; 4 = the A78 cluster (8 with the A55s is slower, WP9a). */
+        /** Fixed at load time by sd.cpp; 4 = the A78 cluster (8 with the A55s is slower). */
         const val IMAGE_THREADS = 4
     }
 }

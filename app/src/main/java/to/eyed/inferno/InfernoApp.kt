@@ -16,7 +16,7 @@ import to.eyed.inferno.models.DownloadService
 import to.eyed.inferno.models.ModelRepository
 
 /**
- * Application root (spec 5.1). Builds the [AppContainer] lazily so a process started by DownloadService alone
+ * Application root. Builds the [AppContainer] lazily so a process started by DownloadService alone
  * still gets a repository, creates the notification channels, wires memory-trim + process-lifecycle hooks and
  * runs the orphan-attachment sweep once per process.
  */
@@ -45,7 +45,7 @@ class InfernoApp : Application(), DownloadService.Host, SingletonImageLoader.Fac
         }
     }
 
-    /** keepModelLoaded decides whether a BACKGROUND trim unloads or only releases the context (5.2). */
+    /** keepModelLoaded decides whether a BACKGROUND trim unloads or only releases the context. */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         container.engine.onTrimMemory(level, container.prefs.settings.value.keepModelLoaded)
