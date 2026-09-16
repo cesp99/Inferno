@@ -19,10 +19,13 @@ import to.eyed.inferno.models.ThinkingSpec
 
 /** A chat's memory: the latest summary (if any) and the turns after its compaction point, summary rows excluded. */
 data class MemoryView(val summary: ChatMessage?, val recent: List<ChatMessage>) {
-    /** Turns as prompt messages (assistant turns are content only, never their reasoning). */
-    fun prompt(): List<PromptMessage> = recent.map { m ->
+    /**
+     * Turns as prompt messages (assistant turns are content only, never their reasoning). An assistant turn stopped
+     * while it was still thinking has no content: it is left out rather than sent as an empty turn.
+     */
+    fun prompt(): List<PromptMessage> = recent.mapNotNull { m ->
         if (m.role == ChatRepository.ROLE_USER) PromptMessage("user", ContextManager.sanitize(m.content), m.images.map { it.id })
-        else PromptMessage("assistant", m.content)
+        else if (m.content.isNotBlank()) PromptMessage("assistant", m.content) else null
     }
     companion object {
         fun of(messages: List<ChatMessage>): MemoryView {

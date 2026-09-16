@@ -42,6 +42,9 @@ import com.composables.icons.lucide.Lucide
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
+import com.mikepenz.markdown.compose.elements.MarkdownTable
+import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
+import com.mikepenz.markdown.compose.elements.MarkdownTableRow
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -112,13 +115,23 @@ private fun MarkdownChunkView(chunk: String) {
             ),
             table = body.copy(fontSize = 14.sp, lineHeight = 20.sp),
         ),
-        dimens = markdownDimens(codeBackgroundCornerSize = Radii.row),
+        // Cells at the library's 160 dp would push a 3-column table past a phone's width into a horizontal scroll
+        // with no affordance (the last column looked clipped); 110 dp keeps three columns on screen and the wrapping
+        // rows below make long descriptions readable instead of ellipsised.
+        dimens = markdownDimens(codeBackgroundCornerSize = Radii.row, tableCellWidth = 110.dp, tableCellPadding = 12.dp),
         components = markdownComponents(
             codeFence = { model ->
                 MarkdownCodeFence(model.content, model.node) { code, language, _ -> MonoCodeBlock(code, language) }
             },
             codeBlock = { model ->
                 MarkdownCodeBlock(model.content, model.node) { code, language, _ -> MonoCodeBlock(code, language) }
+            },
+            table = { model ->
+                MarkdownTable(
+                    model.content, model.node, model.typography.table,
+                    headerBlock = { content, header, width, style -> MarkdownTableHeader(content, header, width, style, maxLines = 3) },
+                    rowBlock = { content, row, width, style -> MarkdownTableRow(content, row, width, style, verticalAlignment = Alignment.Top, maxLines = Int.MAX_VALUE) },
+                )
             },
         ),
         modifier = Modifier.fillMaxWidth(),

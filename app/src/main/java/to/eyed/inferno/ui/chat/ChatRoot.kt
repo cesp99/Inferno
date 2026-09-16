@@ -372,23 +372,24 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     renameId?.let { id ->
         val c = conversations.firstOrNull { it.id == id }
         if (c == null) renameId = null
-        else TextSheet(S.renameChat, S.chatTitle, c.displayTitle, S.save, onDismiss = { renameId = null }) { chatVm.rename(id, it); renameId = null }
+        else TextSheet(S.renameChat, S.chatTitle, c.displayTitle, S.save, multiline = false, onDismiss = { renameId = null }) { chatVm.rename(id, it); renameId = null }
     }
     editId?.let { id ->
         val m = messages.firstOrNull { it.id == id }
         if (m == null) editId = null
-        else TextSheet(S.editMessage, S.chat, m.content, S.resend, onDismiss = { editId = null }) { chatVm.editAndResend(id, it); editId = null }
+        else TextSheet(S.editMessage, S.chat, m.content, S.resend, multiline = true, onDismiss = { editId = null }) { chatVm.editAndResend(id, it); editId = null }
     }
 }
 
 /** Small sheet with one multi-line field and a primary action (rename a chat, edit a message). */
 @Composable
-private fun TextSheet(title: String, label: String, initial: String, action: String, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
+private fun TextSheet(title: String, label: String, initial: String, action: String, multiline: Boolean, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var text by rememberSaveable(initial) { mutableStateOf(initial) }
     InfernoSheet(onDismiss = onDismiss) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             SheetHeader(title, Lucide.X, onLeading = onDismiss)
-            FormField(label, text, { text = it }, multiline = true)
+            // The sheet exists to edit this one value: focus it straight away; a title submits from the keyboard's Done.
+            FormField(label, text, { text = it }, multiline = multiline, autoFocus = true, onDone = { if (text.isNotBlank()) onSubmit(text.trim()) })
             PrimaryButton(action, enabled = text.isNotBlank(), onClick = { onSubmit(text.trim()) }, modifier = Modifier.fillMaxWidth())
         }
     }

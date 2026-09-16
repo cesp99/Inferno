@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,6 +48,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -357,7 +360,13 @@ fun FormField(
     placeholder: String = "",
     multiline: Boolean = false,
     enabled: Boolean = true,
+    /** Focus the field (and raise the keyboard) as soon as the sheet has settled: a sheet that exists only to edit one value. */
+    autoFocus: Boolean = false,
+    /** Single-line fields: the keyboard's Done key. */
+    onDone: (() -> Unit)? = null,
 ) {
+    val focus = remember { FocusRequester() }
+    if (autoFocus) LaunchedEffect(Unit) { delay(SHEET_FOCUS_DELAY_MS); focus.requestFocus() }
     Column(modifier.fillMaxWidth()) {
         Text(label, style = RowMeta.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium), color = Ink.I500)
         Spacer(Modifier.height(6.dp))
@@ -369,7 +378,9 @@ fun FormField(
             textStyle = Typography.bodyMedium.copy(color = Ink.I100),
             cursorBrush = SolidColor(Ink.White),
             keyboardOptions = KeyboardOptions(imeAction = if (multiline) ImeAction.Default else ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }),
             modifier = Modifier
+                .focusRequester(focus)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(Radii.control))
                 .background(Ink.SurfaceHigh)
@@ -423,3 +434,6 @@ fun NavCard(
 /** Remembers a sheet page name across rotation and process death. */
 @Composable
 fun rememberSheetPage(initial: String = "main") = rememberSaveable { mutableStateOf(initial) }
+
+/** Focus after the sheet's enter animation, so the keyboard does not fight the slide-in. */
+private const val SHEET_FOCUS_DELAY_MS = 250L

@@ -404,7 +404,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                     }
                     GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error(S.messageExceedsContext)) }
                     is GenerationEvent.Error -> {
-                        assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
+                        persistPartial(conversationId, assistantId, stream, errorStats(model.id))
                         stream.close()
                         setGen(conversationId, GenState.Error(ev.message))
                     }
@@ -416,13 +416,13 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             // User Stop: keep whatever streamed, marked as stopped.
             stream.close()
             withContext(NonCancellable) {
-                assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id, FinishReason.CANCELLED.name)) }
+                persistPartial(conversationId, assistantId, stream, errorStats(model.id, FinishReason.CANCELLED.name))
                 setGen(conversationId, GenState.Idle)
             }
             throw e
         } catch (e: Exception) {
             stream.close()
-            assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
+            persistPartial(conversationId, assistantId, stream, errorStats(model.id))
             setGen(conversationId, GenState.Error(e.message ?: S.generationFailed))
         } finally {
             // Every orderly end of the turn (Done, Error, NeedsTruncation, Stop, exception) reached Kotlin, so the
@@ -581,6 +581,18 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         paramsJson = json.encodeToString(GenerationParams.serializer(), params), templateName = l.templateName, templateSupported = l.templateSupported,
         finishReason = finish, modelId = modelId,
     )
+
+    /**
+     * A turn that ended early (Stop, error) keeps what streamed. The assistant row is only created on the first visible
+     * token, so a turn stopped while still thinking has no row yet: write one for the reasoning alone, or the panel
+     * (and the "stopped" mark) would vanish with the tap.
+     */
+    private suspend fun persistPartial(conversationId: String, assistantId: String?, stream: Streamer, stats: MessageStats) {
+        when {
+            assistantId != null -> c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
+            stream.reasoningOrNull() != null -> c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats)
+        }
+    }
 
     private fun errorStats(modelId: String, finish: String = FinishReason.ERROR.name) =
         MessageStats(promptTokens = 0, generatedTokens = 0, prefillMs = 0, decodeMs = 0, finishReason = finish, modelId = modelId)
