@@ -89,3 +89,9 @@ model card before commercial use.
 Inferno is free software under the [GNU General Public License v3.0](LICENSE). Third-party components and their
 licences are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and shown in the app under
 Settings > About.
+
+## Trademarks
+
+The Inferno name, the owl logo, and the Eyed name and marks are trademarks of Carlo Esposito and Eyed. The GPL
+covers the code, not the brand. If you fork this project to build your own product, you are welcome to, but use
+your own name and logo and do not present your build as Inferno or as coming from Eyed.
