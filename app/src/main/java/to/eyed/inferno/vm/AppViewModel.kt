@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import to.eyed.inferno.AppContainer
 import to.eyed.inferno.data.DevFlag
+import to.eyed.inferno.data.ContextPolicy
 import to.eyed.inferno.data.KvCachePref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
@@ -366,7 +367,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun setSystemPrompt(s: String) = viewModelScope.launch { c.prefs.setSystemPrompt(s) }
     fun setThinking(v: Boolean) = viewModelScope.launch { c.prefs.setThinking(v) }
     fun setImageDetail(d: ImageDetail) = viewModelScope.launch { c.prefs.setImageDetail(d) }
-    fun setAutoTrim(v: Boolean) = viewModelScope.launch { c.prefs.setAutoTrim(v) }
+    fun setContextPolicy(p: ContextPolicy) = viewModelScope.launch { c.prefs.setContextPolicy(p) }
     fun setStreamingAnimations(v: Boolean) = viewModelScope.launch { c.prefs.setStreamingAnimations(v) }
     fun setHaptics(v: Boolean) = viewModelScope.launch { c.prefs.setHaptics(v) }
     fun setAllowMeteredDownloads(v: Boolean) = viewModelScope.launch { c.prefs.setAllowMeteredDownloads(v) }

@@ -20,8 +20,9 @@ class ContextManagerFitTest {
         override suspend fun estimateMemory(model: LocalModel, config: ContextConfig): MemoryEstimate = error("unused")
         override suspend fun countPromptTokens(messages: List<PromptMessage>, images: List<PromptImage>): Int {
             counts++; lastImages = images
-            return messages.sumOf { it.content.length / 4 + 8 } + messages.sumOf { it.imageIds.size } * 256
+            return promptTokensOf(messages)
         }
+        fun promptTokensOf(messages: List<PromptMessage>) = messages.sumOf { it.content.length / 4 + 8 } + messages.sumOf { it.imageIds.size } * 256
     }
 
     private val engine = CountingEngine()
@@ -104,6 +105,77 @@ class ContextManagerFitTest {
         assertEquals(listOf("img0", "img1"), fit.images.map { it.id })                      // only referenced images, prompt order
         assertTrue(fit.images.all { it.rgb != null })
         assertNull(fit.images.firstOrNull { it.id == "unused" })
+    }
+
+    // ---- ContextPolicy.COMPACT: material selection ----------------------------------------------------------------
+
+    @Test fun compactionKeepsTheLastFourTurnsAndSummarizesTheRest() = runBlocking {
+        val h = history(10)                                                                // 20 messages, 2160 tokens
+        val plan = cm.planCompaction("sys", null, h, nCtx = 8192, reserve = 512, keepTurns = 4)!!
+        assertEquals(12, plan.cut)                                                          // history[12] is the 4th-last user turn
+        assertEquals("user", h[plan.cut].role)
+        assertEquals(0, plan.droppedMaterial)
+        assertEquals(listOf("system", "user"), plan.request.map { it.role })
+        assertEquals(ContextManager.COMPACT_INSTRUCTION, plan.request[0].content)
+        val transcript = plan.request[1].content
+        assertEquals(12, Regex("^(User|Assistant): ", RegexOption.MULTILINE).findAll(transcript).count())
+        assertFalse(transcript.startsWith("Your earlier notes"))
+        assertEquals(512, plan.maxTokens)
+    }
+
+    @Test fun compactionShrinksTheKeptTailUntilItSitsUnderHalfTheWindow() = runBlocking {
+        // 0.5 x 4096 = 2048 budget minus 512 summary minus 512 reserve leaves 1024 for the kept turns:
+        // 4 turns (864) fit; at nCtx 3072 (budget 512) they do not, 2 turns (432) do; at 2048 only the newest survives.
+        val h = history(10)
+        assertEquals(12, cm.planCompaction(null, null, h, nCtx = 4096, reserve = 512)!!.cut)
+        assertEquals(16, cm.planCompaction(null, null, h, nCtx = 3072, reserve = 512)!!.cut)
+        assertEquals(18, cm.planCompaction(null, null, h, nCtx = 2048, reserve = 512)!!.cut)
+        assertEquals("user", h[16].role)
+    }
+
+    @Test fun theNewestUserTurnIsNeverSummarizedAndNothingOlderMeansNoPlan() = runBlocking {
+        val single = listOf(PromptMessage("user", "x".repeat(4000)))
+        assertNull(cm.planCompaction(null, null, single, 2048, 512))
+        assertNull(cm.planCompaction(null, "old notes", single, 2048, 512))                  // a summary alone is not material
+        // Two turns that together blow the window: keep only the newest question, summarize the first exchange.
+        val two = listOf(PromptMessage("user", "a".repeat(4000)), PromptMessage("assistant", "b".repeat(4000)), PromptMessage("user", "c".repeat(400)))
+        val plan = cm.planCompaction(null, null, two, 4096, 512)!!
+        assertEquals(2, plan.cut)
+        assertEquals(two[2], two.subList(plan.cut, two.size).single())
+    }
+
+    @Test fun chainedCompactionPutsThePreviousSummaryFirstInTheMaterial() = runBlocking {
+        val h = history(6)
+        val plan = cm.planCompaction(null, "- user likes tea", h, 8192, 512, keepTurns = 2)!!
+        assertEquals(8, plan.cut)
+        assertTrue(plan.request[1].content.startsWith("Your earlier notes (previous summary):\n- user likes tea\n\nUser: "))
+    }
+
+    @Test fun carryOverFoldsEverythingButAnUnansweredQuestion() = runBlocking {
+        val answered = history(3)
+        assertEquals(6, cm.planCompaction(null, null, answered, 8192, 512, keepTurns = 0)!!.cut)
+        val pending = answered + PromptMessage("user", "and now?")
+        assertEquals(6, cm.planCompaction(null, null, pending, 8192, 512, keepTurns = 0)!!.cut)
+    }
+
+    @Test fun oversizedMaterialIsTrimmedOldestFirstSoTheRequestFits() = runBlocking {
+        // 20 messages = 2160 tokens of material; the request must leave 512 for the summary in a 2048 window.
+        val plan = cm.planCompaction(null, null, history(10) + PromptMessage("user", "last"), nCtx = 2048, reserve = 512, keepTurns = 1)!!
+        assertEquals(20, plan.cut)
+        assertTrue(plan.droppedMaterial > 0)
+        assertTrue(engine.promptTokensOf(plan.request) + plan.maxTokens <= 2048)
+        assertTrue(plan.request[1].content.contains("User: "))
+    }
+
+    @Test fun compactionTriggerAndStopThreshold() {
+        assertFalse(cm.needsCompaction(tokens = 1000, reserve = 512, nCtx = 2048))         // 1512 <= 1536
+        assertTrue(cm.needsCompaction(tokens = 1025, reserve = 512, nCtx = 2048))          // 1537 > 0.75 x 2048
+        assertFalse(ContextManager.contextFull(used = 1883, nCtx = 2048))                   // < 92 %
+        assertTrue(ContextManager.contextFull(used = 1884, nCtx = 2048))                    // 0.92 x 2048 = 1884.16 -> 1884
+        assertFalse(ContextManager.contextFull(used = 5000, nCtx = 0))                      // no model, never "full"
+        assertEquals("sys\n\nSummary of the earlier conversation (your own notes):\n- notes", ContextManager.systemWith("sys", "- notes"))
+        assertEquals("sys", ContextManager.systemWith("sys", " "))
+        assertNull(ContextManager.systemWith("  ", null))
     }
 
     @Test fun reserveRuleAndSanitizer() {

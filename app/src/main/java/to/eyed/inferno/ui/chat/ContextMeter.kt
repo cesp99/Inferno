@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.GlassButton
 import to.eyed.inferno.ui.components.PrimaryButton
+import to.eyed.inferno.ui.components.QuietNotice
 import to.eyed.inferno.ui.components.surfaceCard
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Radii
@@ -80,27 +82,34 @@ fun ContextRing(
 }
 
 /**
- * Replaces the composer when the next prompt would use >= 92 % of the window and auto-trim is off:
- * the user decides between trimming and a fresh chat instead of getting a failed turn.
+ * STOP policy (ContextPolicy.STOP): replaces the composer once the next prompt no longer fits or usage passed
+ * ContextManager.STOP_FRACTION. Nothing is dropped; the user picks a fresh chat (optionally seeded with one
+ * summary of this one) or flips the policy to rolling. "Carry over" needs the model loaded.
  */
 @Composable
-fun ContextLimitPanel(used: Int, nCtx: Int, onNewChat: () -> Unit, onTrim: () -> Unit, modifier: Modifier = Modifier) {
+fun ContextFullPanel(
+    used: Int, nCtx: Int, canCarryOver: Boolean,
+    onNewChat: () -> Unit, onCarryOver: () -> Unit, onSwitchToRolling: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier
             .fillMaxWidth()
             .surfaceCard(RoundedCornerShape(Radii.card), fill = Ink.Surface)
             .padding(20.dp),
     ) {
-        Text(S.contextAlmostFull, style = Typography.titleMedium, color = Ink.White)
+        Text(S.contextFullTitle, style = Typography.titleMedium, color = Ink.White)
         Spacer(Modifier.height(6.dp))
         Text(
-            S.contextAlmostFullBody(String.format(Locale.US, "%,d", used), String.format(Locale.US, "%,d", nCtx)),
+            S.contextFullBody(String.format(Locale.US, "%,d", used), String.format(Locale.US, "%,d", nCtx)),
             style = Typography.bodyMedium, color = Ink.I500,
         )
         Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryButton(S.trimOlderMessages, onClick = onTrim, modifier = Modifier.weight(1f))
-            GlassButton(S.newChat, onClick = onNewChat)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PrimaryButton(S.newChat, onClick = onNewChat, modifier = Modifier.weight(1f))
+            GlassButton(S.carryOverSummary, onClick = onCarryOver, enabled = canCarryOver)
         }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { QuietNotice(S.switchToRolling, onClick = onSwitchToRolling) }
     }
 }

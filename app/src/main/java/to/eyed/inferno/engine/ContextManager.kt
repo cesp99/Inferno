@@ -24,6 +24,14 @@ class ContextManager(private val engine: PlannerEngine) {
     data class Fit(val messages: List<PromptMessage>, val images: List<PromptImage>, val droppedCount: Int, val droppedImages: Int,
                    val promptTokens: Int, val trimmedBefore: Int, val trimmedThisTurn: Boolean)
 
+    /**
+     * One compaction (ContextPolicy.COMPACT): [cut] = index into the history of the first message that stays verbatim
+     * (history[0, cut) is folded into the summary), [request] = the prompt that asks the model for the summary,
+     * [maxTokens] its output cap. [droppedMaterial] counts oldest messages left out of the request because even the
+     * request did not fit (they are lost, exactly as rolling would have lost them).
+     */
+    data class CompactPlan(val cut: Int, val request: List<PromptMessage>, val maxTokens: Int, val droppedMaterial: Int)
+
     /** Choose the context configuration for a model given settings + free RAM. Runs estimateMemory on the engine thread. */
     suspend fun plan(model: LocalModel, settings: SettingsState, cpu: CpuTopology): Plan {
         val availRam = cpu.availRamBytes()
@@ -153,6 +161,68 @@ class ContextManager(private val engine: PlannerEngine) {
             trimmedThisTurn = dropped > 0 || droppedImages > 0)
     }
 
+    /** Token count of system + [history] with image placeholders (the policy checks need the number before any generate). */
+    suspend fun measure(system: String?, history: List<PromptMessage>, images: List<PromptImage>): Int =
+        count(assemble(system, history), images.associateBy { it.id })
+
+    /**
+     * Where to cut for a compaction and what to ask the model. [history] = the user/assistant turns after the previous
+     * compaction point (no summary rows), [previousSummary] = the summary they follow, if any: it is part of the
+     * material so chained compactions lose nothing the model already remembered.
+     *
+     * Keeps the newest [keepTurns] user turns verbatim, fewer when they alone (plus a summary of [COMPACT_MAX_TOKENS])
+     * would not sit under [COMPACT_TARGET] of the window, so one compaction buys real room instead of firing again on
+     * the next turn. The newest user turn is never summarized away: it is the question the model is about to answer.
+     * [keepTurns] = 0 (carry-over into a fresh chat) folds everything except an unanswered trailing user message.
+     * Returns null when there is nothing older than the kept turns.
+     */
+    suspend fun planCompaction(system: String?, previousSummary: String?, history: List<PromptMessage>, nCtx: Int, reserve: Int,
+                               keepTurns: Int = COMPACT_KEEP_TURNS): CompactPlan? {
+        if (history.isEmpty()) return null
+        val userIdx = history.indices.filter { history[it].role == "user" }
+        val unansweredTail = history.last().role == "user"
+        // Cut for k kept user turns (the k-th user index from the end); k = 0 keeps only an unanswered trailing question.
+        fun cutFor(k: Int): Int = when {
+            k <= 0 -> if (unansweredTail) history.lastIndex else history.size
+            else -> userIdx.getOrNull(userIdx.size - k) ?: 0
+        }
+        val target = (COMPACT_TARGET * nCtx).toLong()
+        val maxTokens = minOf(COMPACT_MAX_TOKENS, nCtx / 4)
+        var k = if (keepTurns <= 0) 0 else minOf(keepTurns, userIdx.size).coerceAtLeast(1)
+        var cut = cutFor(k)
+        while (k > 1) {
+            val kept = history.subList(cut, history.size)
+            if (count(assemble(system, kept), emptyMap()) + maxTokens + reserve <= target) break
+            k--; cut = cutFor(k)
+        }
+        val material = history.subList(0, cut)
+        if (material.isEmpty()) return null
+        // The request itself must fit: drop the oldest material (never the previous summary) until it does.
+        var dropped = 0
+        var request = compactionRequest(previousSummary, material)
+        while (material.size - dropped > 1 && count(request, emptyMap()) + maxTokens > nCtx) {
+            dropped++
+            request = compactionRequest(previousSummary, material.subList(dropped, material.size))
+        }
+        return CompactPlan(cut, request, maxTokens, dropped)
+    }
+
+    /** True when the assembled next prompt has crossed the trim target: time to compact before sending it. */
+    fun needsCompaction(tokens: Int, reserve: Int, nCtx: Int): Boolean = tokens + reserve > (TRIM_TARGET * nCtx).toLong()
+
+    /** The fixed compaction prompt: instruction as system, the transcript (previous summary first) as one user turn. */
+    fun compactionRequest(previousSummary: String?, material: List<PromptMessage>): List<PromptMessage> {
+        val sb = StringBuilder()
+        if (previousSummary != null) sb.append("Your earlier notes (previous summary):\n").append(previousSummary).append("\n\n")
+        for (m in material) {
+            sb.append(if (m.role == "user") "User: " else "Assistant: ")
+            sb.append(sanitize(m.content).trim())
+            if (m.imageIds.isNotEmpty()) sb.append(" [").append(m.imageIds.size).append(" image(s) attached]")
+            sb.append("\n\n")
+        }
+        return listOf(PromptMessage("system", COMPACT_INSTRUCTION), PromptMessage("user", sb.toString().trimEnd()))
+    }
+
     /** Cheap analytic KV estimate for the live slider label (no native call). bytesPerElement: F16 2, Q8_0 ~1.06, Q4_0 ~0.56. */
     fun kvBytesAnalytic(nCtx: Int, nLayer: Int, nEmbdKGqa: Int, nEmbdVGqa: Int, kvType: KvCacheType): Long {
         val bytesPerElement = when (kvType) { KvCacheType.F16 -> 2.0; KvCacheType.Q8_0 -> 34.0 / 32; KvCacheType.Q4_0 -> 18.0 / 32 }
@@ -182,6 +252,22 @@ class ContextManager(private val engine: PlannerEngine) {
         private const val TAG = "ContextManager"
         const val MIN_CTX = 2048; const val CTX_STEP = 1024; const val MAX_CTX = 131072
         const val TRIM_TARGET = 0.75f
+        // ---- Context policy (COMPACT / STOP) ----
+        /** After a compaction the kept turns + a full-size summary + the reserve stay under this share of the window. */
+        const val COMPACT_TARGET = 0.5f
+        const val COMPACT_KEEP_TURNS = 4
+        const val COMPACT_MAX_TOKENS = 512
+        const val COMPACT_TEMPERATURE = 0.3f
+        const val COMPACT_INSTRUCTION = "Summarize the conversation so far for your own memory: facts, decisions, user preferences, open tasks. Be concise, bullet points, no preamble."
+        /** STOP shows the blocking notice from this share of the window even before a turn fails to fit. */
+        const val STOP_FRACTION = 0.92f
+        /** STOP policy: the chat has reached the model's memory limit (usage share, or the next prompt not fitting is checked by the caller). */
+        fun contextFull(used: Int, nCtx: Int): Boolean = nCtx > 0 && used >= (STOP_FRACTION * nCtx).toInt()
+        /** The system text the model sees: the user's system prompt plus the latest summary as a memory note. */
+        fun systemWith(systemPrompt: String?, summary: String?): String? {
+            val parts = listOfNotNull(systemPrompt?.takeIf { it.isNotBlank() }, summary?.takeIf { it.isNotBlank() }?.let { "Summary of the earlier conversation (your own notes):\n$it" })
+            return parts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+        }
         /** Planner gate: a plan is accepted when its estimate stays below this fraction of the budget (spec 5.2 step 4, 12.3 a). */
         const val BUDGET_GATE = 0.85
         const val MAX_PROBES = 6

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.CircleAlert
 import com.composables.icons.lucide.Cpu
+import com.composables.icons.lucide.FoldVertical
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.SquarePen
@@ -44,6 +45,7 @@ import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.GhostIconButton
 import to.eyed.inferno.ui.components.GlassMenu
 import to.eyed.inferno.ui.components.Hairline
+import to.eyed.inferno.ui.components.MenuActionRow
 import to.eyed.inferno.ui.theme.ChipLabel
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Numeric
@@ -74,20 +76,22 @@ fun TopNav(
     showContextRing: Boolean = false,
     /** Developer mode: "4 threads · pinned · thermal nominal · sustained off" under the long-press label; null hides it. */
     computeLine: (() -> String)? = null,
+    /** "Compact now" in the context panel (long-press on the chip); null hides it (no chat, engine busy). */
+    onCompactNow: (() -> Unit)? = null,
 ) {
     Column(modifier.background(Ink.Pitch)) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
             if (showDrawerToggle) {
                 GhostIconButton(Lucide.PanelLeft, S.openSidebar, onOpenDrawer, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterStart))
             }
-            ModelChip(engine, contextUsage, resolvedCtxLabel.takeIf { showContextRing }, selectedModelName, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp), showRing = showContextRing, computeLine = computeLine)
+            ModelChip(engine, contextUsage, resolvedCtxLabel.takeIf { showContextRing }, selectedModelName, onOpenModelSheet, onCompactNow, Modifier.align(Alignment.Center).padding(horizontal = 48.dp), showRing = showContextRing, computeLine = computeLine)
             GhostIconButton(Lucide.SquarePen, S.newChat, onNewChat, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterEnd))
         }
         AnimatedVisibility(scrolled, enter = fadeIn(fastEffectsSpec()), exit = fadeOut(fastEffectsSpec())) { Hairline() }
     }
 }
 
-/** SurfaceHigh pill whose content follows the engine state; long-press reveals the resolved context label. */
+/** SurfaceHigh pill whose content follows the engine state; long-press reveals the context panel (resolved label, usage, Compact now). */
 @Composable
 private fun ModelChip(
     engine: EngineState,
@@ -95,6 +99,7 @@ private fun ModelChip(
     resolvedCtxLabel: String?,
     selectedModelName: String?,
     onClick: () -> Unit,
+    onCompactNow: (() -> Unit)?,
     modifier: Modifier = Modifier,
     showRing: Boolean = false,
     computeLine: (() -> String)? = null,
@@ -113,7 +118,7 @@ private fun ModelChip(
                 .combinedClickable(
                     interactionSource = interaction, indication = null, role = Role.Button,
                     onClick = onClick,
-                    onLongClick = if (hasInfo) ({ haptics.longPress(); info = true }) else null,
+                    onLongClick = if ((hasInfo || onCompactNow != null) && engine !is EngineState.Idle) ({ haptics.longPress(); info = true }) else null,
                 )
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -147,7 +152,9 @@ private fun ModelChip(
         GlassMenu(expanded = info, onDismiss = { info = false }, minWidth = 120.dp) {
             // Read on open, not per frame: the compute line polls the engine's live thread count.
             val lines = listOfNotNull(resolvedCtxLabel, computeLine?.invoke())
-            Text(lines.joinToString("\n"), style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (lines.isNotEmpty()) Text(lines.joinToString("\n"), style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (usage.nCtx > 0 && showRing) Text(S.contextUsed((usage.fraction * 100).toInt()), style = RowMeta, color = Ink.I500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (onCompactNow != null) MenuActionRow(Lucide.FoldVertical, S.compactNow) { info = false; onCompactNow() }
         }
     }
 }

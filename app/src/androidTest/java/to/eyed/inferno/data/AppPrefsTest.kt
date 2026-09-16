@@ -57,12 +57,13 @@ class AppPrefsTest {
                 repeatLastN = 128, frequencyPenalty = 0.2f, presencePenalty = 1.5f, dryMultiplier = 0.8f, dryBase = 1.5f,
                 dryAllowedLength = 3, dryPenaltyLastN = 256, seed = 7, maxTokens = 512),
             useModelSamplingDefaults = false, systemPrompt = "You are terse. é—🦉", thinking = true, imageDetail = ImageDetail.HIGH,
-            autoTrim = false, streamingAnimations = false, haptics = false, allowMeteredDownloads = true, notificationsAsked = true,
+            streamingAnimations = false, haptics = false, allowMeteredDownloads = true, notificationsAsked = true,
             selectedModelId = "qwen3.5-2b-q4_0", onboardingDone = true, minLogPriority = 3,
             loadAttemptModelId = "gemma-4-e2b-q4_0", lastLoadCrashModelId = "minicpm-v-4.6-q4_0",
             calibration = mapOf("qwen3.5-2b-q4_0" to Calibration(86.6, 14.8, 2100, 1700000000000,
                 imageEncode = mapOf("BALANCED" to ImageEncodeSample(5200, 256)))),
             selectedImageModelId = "sdxs-512-q8_0", imageGenSecPerStep = mapOf("sdxs-512-q8_0:512" to 6.9f),
+            contextPolicy = ContextPolicy.STOP,
         )
         val scope1 = newScope()
         val p1 = prefs(scope1)

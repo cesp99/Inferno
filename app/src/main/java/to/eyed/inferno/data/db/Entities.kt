@@ -1,5 +1,6 @@
 package to.eyed.inferno.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -28,7 +29,7 @@ data class MessageEntity(
     @PrimaryKey val id: String,                 // UUID
     val conversationId: String,
     val orderIndex: Int,
-    val role: String,                           // "user" | "assistant"
+    val role: String,                           // "user" | "assistant" | "summary" (ChatRepository.ROLE_*)
     val content: String,
     val thinking: String? = null,
     val createdAt: Long,
@@ -45,6 +46,11 @@ data class MessageEntity(
     val templateName: String? = null,
     val templateSupported: Boolean = true,
     val modelId: String? = null,
+    // ---- v2: context compaction (ContextPolicy.COMPACT). Only meaningful on role == "summary" rows. ----
+    /** orderIndex of the last message this summary covers; -1 = a summary carried over into a fresh chat (covers nothing here). */
+    @ColumnInfo(defaultValue = "-1") val compactedThrough: Int = -1,
+    /** Raw messages folded into this summary, cumulative across chained compactions ("Compacted N messages"). */
+    @ColumnInfo(defaultValue = "0") val compactedCount: Int = 0,
 )
 
 @Entity(
