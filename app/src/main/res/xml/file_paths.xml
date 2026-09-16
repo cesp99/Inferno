@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider roots: camera captures land in cache/camera (ACTION_IMAGE_CAPTURE output URI),
+     exports (bench JSON, chat markdown) are shared out of files/exports. Nothing else is exposed. -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+    <files-path name="exports" path="exports/" />
+</paths>

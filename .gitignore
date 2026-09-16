@@ -21,3 +21,7 @@ app/.cxx
 # Model files are never committed
 *.gguf
 *.chunk*
+
+# Generated copy of the root notices file (Gradle task copyThirdPartyNotices)
+app/src/main/assets/THIRD-PARTY-NOTICES.md
+/tmp

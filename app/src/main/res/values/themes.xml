@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Black window background: the template's Material.Light parent flashes white before Compose draws. -->
+    <style name="Theme.Inferno" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
 
-    <style name="Theme.Inferno" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Splash: black with the white mark; the foreground mipmap is the 108 dp adaptive layer, so the mark
+         (56 % of the canvas) stays inside the splash's visible 72 dp circle. -->
+    <style name="Theme.Inferno.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/black</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Inferno</item>
+    </style>
 </resources>
