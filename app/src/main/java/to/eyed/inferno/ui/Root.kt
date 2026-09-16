@@ -44,6 +44,7 @@ import kotlinx.coroutines.CancellationException
 import to.eyed.inferno.AppContainer
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.models.DownloadService
+import to.eyed.inferno.ui.chat.ChatRoot
 import to.eyed.inferno.ui.components.ChipPill
 import to.eyed.inferno.ui.components.ErrorNotice
 import to.eyed.inferno.ui.components.GlassButton
@@ -181,7 +182,7 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
         },
     ) { s ->
         when (s) {
-            Screen.CHAT -> ChatPlaceholder(appVm, chatVm, onBeforeSend = ensureNotifications)
+            Screen.CHAT -> ChatRoot(appVm, chatVm, onBeforeSend = ensureNotifications)
             Screen.MODELS -> ModelsPlaceholder(appVm, onBeforeDownload = ensureNotifications)
             Screen.SETTINGS -> SettingsPlaceholder(appVm)
             Screen.BENCH -> BenchPlaceholder(benchVm, appVm)

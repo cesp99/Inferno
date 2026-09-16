@@ -373,5 +373,17 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         viewModelScope.launch { if (settings.value.loadAttemptModelId != null) c.prefs.setLoadAttempt(null) }
     }
 
+    // ---- additive UI helpers (WP7) ---------------------------------------------------------------------------
+
+    /** Sidebar footer line, e.g. "Dimensity 7300 · 4 big cores · 7.7 GB". Static facts, computed once. */
+    val deviceSummary: String by lazy {
+        val gb = String.format(java.util.Locale.US, "%.1f GB", c.cpu.totalRamBytes / 1e9)
+        val cores = if (c.cpu.nBig > 0) "${c.cpu.nBig} big cores" else "${c.cpu.nCores} cores"
+        listOf(c.cpu.socName.takeIf { it.isNotBlank() } ?: "CPU", cores, gb).joinToString(" · ")
+    }
+
+    /** Display name for a model id that may no longer be on disk (TurnDetailsSheet for old turns). */
+    fun modelDisplayName(modelId: String): String = c.models.displayName(modelId)
+
     private companion object { const val KEY_SCREEN = "screen" }
 }
