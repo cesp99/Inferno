@@ -61,6 +61,13 @@ class ImageGenViewModel(private val c: AppContainer, private val handle: SavedSt
     fun isDownloaded(m: ImageCatalogModel): Boolean = c.imageGen.isDownloaded(m)
     fun estimateSeconds(): Int = c.imageGen.estimateSeconds(_modelId.value, size.value, steps.value)
 
+    /** Estimate for any card, not just the selected model (the picker shows "~12 s" on both). */
+    fun estimateSeconds(modelId: String, size: ImageSizePreset, steps: Int? = null): Int = c.imageGen.estimateSeconds(modelId, size, steps)
+
+    /** True from the Generate tap until Done / Error / cancel; the chat composer shows "Generating image…" (WP7). */
+    val isBusy: StateFlow<Boolean> = state.map { it is ImageGenUiState.Loading || it is ImageGenUiState.Generating }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     init {
         // Prefs may not have been read when the VM was created: adopt the persisted choice once they land.
         viewModelScope.launch {

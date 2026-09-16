@@ -158,4 +158,66 @@ object S {
     // Accessibility labels for decorative / structural elements
     const val dragHandle = "Drag handle"
     const val selected = "Selected"
+
+    // Create image / Gallery (WP9b-ui)
+    const val create = "Create"
+    const val createImage = "Create image"
+    const val gallery = "Gallery"
+    const val describeImage = "Describe the image…"
+    const val generate = "Generate"
+    const val imageModel = "Model"
+    const val options = "Options"
+    const val size = "Size"
+    const val steps = "Steps"
+    const val seed = "Seed"
+    const val randomSeed = "Random"
+    const val randomSeedHint = "New every time"
+    const val useRandomSeed = "Use a random seed"
+    const val reuseLastSeed = "Reuse last seed"
+    const val copySeed = "Copy seed"
+    const val fewerSteps = "Fewer steps"
+    const val moreSteps = "More steps"
+    const val saveToPhotos = "Save"
+    const val savedToPhotos = "Saved to Photos"
+    const val share = "Share"
+    const val useAsAttachment = "Attach"
+    const val again = "Again"
+    const val downloaded = "Downloaded"
+    const val verifying = "Verifying…"
+    const val waiting = "Waiting…"
+    const val discard = "Discard"
+    const val downloading = "Downloading"
+    const val resumeDownload = "Resume download"
+    const val retryDownload = "Retry download"
+    const val noImagesYet = "No images yet"
+    const val noImagesHint = "Images you create will appear here."
+    const val generatedImage = "Generated image"
+    const val latentPreview = "Preview"
+    const val deleteImage = "Delete image"
+    const val openImage = "Open image"
+    const val starting = "Starting"
+    const val finishing = "Finishing"
+    const val describeFirst = "Describe the image first"
+    fun loadingImageModel(name: String) = "Loading $name…"
+    fun stepOf(step: Int, total: Int) = "Step $step/$total"
+    fun downloadModel(name: String, size: String) = "Download $name · $size"
+    fun square(px: Int) = "$px × $px"
+
+    /** "~12 s" / "~1 min" / "~1 min 8 s": whole seconds, minutes once past 60. */
+    fun eta(seconds: Int): String {
+        val s = seconds.coerceAtLeast(0)
+        if (s < 60) return "~$s s"
+        val m = s / 60
+        val r = s % 60
+        return if (r == 0) "~$m min" else "~$m min $r s"
+    }
+
+    /** "8.1 s" / "1 min 8 s" (6.2): one decimal under a minute, whole seconds above. */
+    fun duration(ms: Long): String {
+        val s = ms / 1000.0
+        if (s < 60) return String.format(java.util.Locale.US, "%.1f s", s)
+        val m = (s / 60).toInt()
+        val r = (s - m * 60).toInt()
+        return if (r == 0) "$m min" else "$m min $r s"
+    }
 }

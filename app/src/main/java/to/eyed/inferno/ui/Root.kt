@@ -50,6 +50,8 @@ import to.eyed.inferno.ui.components.GlassButton
 import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.PrimaryButton
 import to.eyed.inferno.ui.components.SheetHeader
+import to.eyed.inferno.ui.create.CreateScreen
+import to.eyed.inferno.ui.create.GalleryScreen
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.LocalAnimations
 import to.eyed.inferno.ui.theme.LocalHaptics
@@ -185,8 +187,8 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
             Screen.MODELS -> ModelsPlaceholder(appVm, onBeforeDownload = ensureNotifications)
             Screen.SETTINGS -> SettingsPlaceholder(appVm)
             Screen.BENCH -> BenchPlaceholder(benchVm, appVm)
-            Screen.CREATE -> CreatePlaceholder(imageVm, appVm, chatVm, onBeforeDownload = ensureNotifications)
-            Screen.GALLERY -> GalleryPlaceholder(imageVm, appVm)
+            Screen.CREATE -> CreateScreen(imageVm, appVm, chatVm, onBeforeDownload = ensureNotifications)
+            Screen.GALLERY -> GalleryScreen(imageVm, appVm, chatVm)
         }
     }
 }

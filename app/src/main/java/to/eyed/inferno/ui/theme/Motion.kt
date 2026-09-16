@@ -7,6 +7,7 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.InfiniteRepeatableSpec
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.TweenSpec
@@ -76,6 +77,14 @@ fun morphLoopSpec(): InfiniteRepeatableSpec<Float> =
 /** Streaming caret: 450 ms on/off. */
 fun caretBlinkSpec(): InfiniteRepeatableSpec<Float> =
     infiniteRepeatable(tween(450, easing = LinearEasing), RepeatMode.Reverse)
+
+/**
+ * Determinate progress eased to a predicted duration (prefill ring, image-generation ring): the value glides
+ * towards the next milestone over [durationMs] and decelerates, so it never arrives before the real event does.
+ * When the event lands early the caller simply retargets from the current value.
+ */
+fun etaProgressSpec(durationMs: Int): TweenSpec<Float> =
+    tween(durationMs.coerceIn(120, 120_000), easing = LinearOutSlowInEasing)
 
 /** Pulsing dot; stagger sibling dots with [delayMs] (200 ms apart). */
 fun pulseSpec(delayMs: Int = 0): InfiniteRepeatableSpec<Float> =
