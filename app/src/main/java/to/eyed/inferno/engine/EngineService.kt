@@ -18,8 +18,8 @@ import to.eyed.inferno.R
 /**
  * specialUse foreground service that keeps a user-started generation alive while the app is in the background.
  * Policy (spec 5.2): NOT started per message. InferenceEngine starts it from onAppForeground(false) only while a
- * generation is running and stops it when the app returns or the turn ends, so a 2-second reply with the screen
- * on never touches the notification shade. Tap opens MainActivity; "Stop" delivers EXTRA_ACTION = ACTION_STOP to
+ * generation (or, via EngineCoordinator.onImageJob, an image run) is running and stops it when the app returns or
+ * the job ends, so a 2-second reply with the screen on never touches the notification shade. Tap opens MainActivity; "Stop" delivers EXTRA_ACTION = ACTION_STOP to
  * the singleTop activity (onNewIntent -> PendingAction.Stop -> chatVm.cancel()).
  */
 class EngineService : Service() {
@@ -31,6 +31,9 @@ class EngineService : Service() {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Inferno"
         ensureChannel(this)
         ServiceCompat.startForeground(this, NOTIF_ID, notification(heading, title), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // A stop() that arrived while startForegroundService() was still in flight is honoured only now: stopping a
+        // service before its startForeground() ran kills the process with RemoteServiceException.
+        if (settleStart()) stopForegroundAndSelf()
         return START_NOT_STICKY
     }
 
@@ -87,21 +90,43 @@ class EngineService : Service() {
         /** Second notification type (12.5): the image-generation repository passes this heading while it owns the job. */
         const val HEADING_IMAGE = "Inferno is generating an image"
 
+        // Start/stop bookkeeping. start()/stop() are called from the engine (any thread), onStartCommand on Main.
+        private val lock = Any()
+        /** startForegroundService() calls whose onStartCommand (and thus startForeground) has not run yet. */
+        private var pendingStarts = 0
+        /** A stop() arrived while a start was pending; onStartCommand performs it once nothing is pending. */
+        private var stopRequested = false
+
         /** startForegroundService; idempotent (a second start just refreshes the notification text). */
         fun start(context: Context, title: String, heading: String = HEADING_TEXT) {
             val app = context.applicationContext
+            synchronized(lock) { stopRequested = false; pendingStarts++ }
             try {
                 ContextCompat.startForegroundService(app, Intent(app, EngineService::class.java).putExtra(EXTRA_TITLE, title).putExtra(EXTRA_HEADING, heading))
             } catch (e: Exception) {
                 // ForegroundServiceStartNotAllowedException & co.: the generation continues without the badge.
+                synchronized(lock) { pendingStarts = (pendingStarts - 1).coerceAtLeast(0) }
                 EngineLog.w("EngineService", "start refused: ${e.message}")
             }
         }
 
-        /** stopService is allowed from any process state; a start still in flight is cancelled with it. */
+        /**
+         * stopService is allowed from any process state, but never while a startForegroundService() has not yet
+         * reached startForeground(): AMS treats that as "did not then call startForeground()" and kills the process.
+         * In that window the stop is recorded and issued from onStartCommand instead.
+         */
         fun stop(context: Context) {
+            synchronized(lock) {
+                if (pendingStarts > 0) { stopRequested = true; return }
+            }
             val app = context.applicationContext
             app.stopService(Intent(app, EngineService::class.java))
+        }
+
+        /** onStartCommand: one pending start has reached startForeground(); true when a deferred stop is now due. */
+        private fun settleStart(): Boolean = synchronized(lock) {
+            pendingStarts = (pendingStarts - 1).coerceAtLeast(0)
+            if (pendingStarts == 0 && stopRequested) { stopRequested = false; true } else false
         }
 
         /** InfernoApp creates the channel too; creating it twice with the same parameters is a no-op. */

@@ -148,6 +148,7 @@ open class ThermalGovernor(
 
     private var session: PerformanceHintManager.Session? = null
     private var poller: Job? = null
+    @Volatile private var lastSampleNs = 0L          // 0 = never sampled
 
     init {
         pm?.addThermalStatusListener({ it.run() }) { s -> _status.value = s }
@@ -167,7 +168,7 @@ open class ThermalGovernor(
     open fun pauseImageEncoding(): Boolean = _status.value >= PowerManager.THERMAL_STATUS_SEVERE
 
     open fun beginGeneration(ctx: Long, preset: PerfPreset, targetTps: Double) {
-        endGeneration()
+        teardown()
         val targetNs = (1_000_000_000.0 / targetTps.coerceIn(1.0, 500.0)).toLong()
         val hm = hints
         if (hm != null && ctx != 0L) {
@@ -179,12 +180,24 @@ open class ThermalGovernor(
             }
         }
         _sustained.value = preset.sustained && (pm?.isSustainedPerformanceModeSupported ?: false)
+        // Delay first: the engine samples through refreshHeadroom() right before the turn's thread decision, and
+        // getThermalHeadroom is rate-limited (NaN when called again within a second).
         poller = scope.launch(Dispatchers.Default) {
             while (isActive) {
-                sampleHeadroom()
                 delay(10_000)
+                sampleHeadroom()
             }
         }
+    }
+
+    /**
+     * One synchronous sample for the thread decision at the start of a turn (rate-limited to the platform's one per
+     * second: a second call inside that window keeps the value it has instead of overwriting it with NaN).
+     */
+    fun refreshHeadroom() {
+        val now = System.nanoTime()
+        if (lastSampleNs != 0L && now - lastSampleNs < 1_000_000_000L) return
+        sampleHeadroom()
     }
 
     fun reportToken(durationNanos: Long) {
@@ -193,6 +206,14 @@ open class ThermalGovernor(
     }
 
     fun endGeneration() {
+        teardown()
+        // A sample from a finished turn must never decide a later one (the phone may have cooled for minutes);
+        // this also clears the "Phone is hot" chip once the turn is over.
+        _headroom.value = Float.NaN
+    }
+
+    /** Poller + ADPF session down; the headroom sample is kept (beginGeneration runs right after the turn's refresh). */
+    private fun teardown() {
         poller?.cancel(); poller = null
         try { session?.close() } catch (e: Exception) { /* already closed */ }
         session = null
@@ -201,6 +222,7 @@ open class ThermalGovernor(
 
     private fun sampleHeadroom() {
         val p = pm ?: return
+        lastSampleNs = System.nanoTime()
         val h = try { p.getThermalHeadroom(10) } catch (e: Exception) { Float.NaN }
         _headroom.value = h
         // API 36 CPU headroom (SystemHealthManager.getCpuHeadroom) is sampled reflectively so the build does not depend

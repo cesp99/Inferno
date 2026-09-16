@@ -111,6 +111,14 @@ sealed interface ImageGenUiState {
 /** Implemented by the LLM side (WP2): unload the text model so only one native engine is resident. */
 fun interface EngineCoordinator {
     suspend fun releaseForImageGen()
+
+    /**
+     * An image run (load + generate) is starting / has ended. The app side keeps the process alive with the
+     * foreground service (EngineService, HEADING_IMAGE) while a run is active and the app is in the background,
+     * exactly as it does for a text turn (12.5); a 30-90 s SD run in a plain cached process is frozen or killed.
+     * Default no-op so fakes and tests stay one lambda.
+     */
+    fun onImageJob(active: Boolean, modelName: String) {}
 }
 
 /** The process-wide single-native-job mutex (spec 12.3 d), shared with text and vision jobs. */
