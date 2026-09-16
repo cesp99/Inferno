@@ -19,7 +19,7 @@ data class ChatMessage(val id: String, val role: String, val content: String, va
 /** Everything the TurnDetailsSheet shows, persisted per assistant message (no LoadedModel dependency, so old turns and reopened chats have full details). Rows with 0 / null are hidden. */
 data class MessageStats(
     val promptTokens: Int, val reusedTokens: Int = 0, val generatedTokens: Int, val prefillMs: Long, val decodeMs: Long,
-    val imageEncodeMs: Long = 0, val kvUsedTokens: Int = 0, val nCtx: Int = 0,
+    val imageEncodeMs: Long = 0, val kvUsedTokens: Int = 0, val nCtx: Int = 0, val thinkingMs: Long = 0,
     val paramsJson: String? = null, val templateName: String? = null, val templateSupported: Boolean = true,
     val finishReason: String?, val modelId: String?,
 ) {
@@ -164,7 +164,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         val m = message
         val stats = if (m.role == ROLE_ASSISTANT) MessageStats(
             promptTokens = m.promptTokens, reusedTokens = m.reusedTokens, generatedTokens = m.generatedTokens, prefillMs = m.prefillMs,
-            decodeMs = m.decodeMs, imageEncodeMs = m.imageEncodeMs, kvUsedTokens = m.kvUsedTokens, nCtx = m.nCtx, paramsJson = m.paramsJson,
+            decodeMs = m.decodeMs, imageEncodeMs = m.imageEncodeMs, kvUsedTokens = m.kvUsedTokens, nCtx = m.nCtx, thinkingMs = m.thinkingMs, paramsJson = m.paramsJson,
             templateName = m.templateName, templateSupported = m.templateSupported, finishReason = m.finishReason, modelId = m.modelId,
         ) else null
         val atts = images.sortedBy { it.orderIndex }.map { imageUtil.attachment(it.imageId, it.width, it.height) }
@@ -174,7 +174,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
     private fun MessageEntity.withStats(s: MessageStats) = copy(
         finishReason = s.finishReason, promptTokens = s.promptTokens, reusedTokens = s.reusedTokens, generatedTokens = s.generatedTokens,
         prefillMs = s.prefillMs, decodeMs = s.decodeMs, imageEncodeMs = s.imageEncodeMs, kvUsedTokens = s.kvUsedTokens, nCtx = s.nCtx,
-        paramsJson = s.paramsJson, templateName = s.templateName, templateSupported = s.templateSupported, modelId = s.modelId ?: modelId,
+        thinkingMs = s.thinkingMs, paramsJson = s.paramsJson, templateName = s.templateName, templateSupported = s.templateSupported, modelId = s.modelId ?: modelId,
     )
 
     companion object {

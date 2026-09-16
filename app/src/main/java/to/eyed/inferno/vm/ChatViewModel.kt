@@ -393,7 +393,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         stream.publish(false)
                     }
                     is GenerationEvent.Done -> {
-                        val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params)
+                        val stats = toStats(ev.stats, ev.reason.name, model.id, loaded, params).copy(thinkingMs = stream.thinkingMs)
                         if (assistantId == null) assistantId = c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats).id
                         else c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
                         _lastStats.value = ev.stats
@@ -539,6 +539,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         private var lastPersistNs = 0L
         fun reasoningOrNull() = reasoning.toString().takeIf { it.isNotEmpty() }
         val textStr: String get() = text.toString()
+        /** Time inside the think tags: up to the first visible token, or until now when the turn ended while thinking. */
+        val thinkingMs: Long get() = when { reasoning.isEmpty() -> 0L; thinkingEndNs > 0 -> (thinkingEndNs - startNs) / 1_000_000; else -> (System.nanoTime() - startNs) / 1_000_000 }
         fun thinking(piece: String) { tick(); reasoning.append(piece) }
         fun token(piece: String) { tick(); if (thinkingEndNs == 0L && reasoning.isNotEmpty()) thinkingEndNs = System.nanoTime(); text.append(piece) }
         private fun tick() {
@@ -564,7 +566,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             }
             lastPublish = now
             if (now - lastTpsPublish >= TPS_NS) { lastTpsPublish = now; shownTps = (tps * 10).toInt() / 10f }
-            val thinkingMs = when { reasoning.isEmpty() -> 0L; thinkingEndNs > 0 -> (thinkingEndNs - startNs) / 1_000_000; else -> (now - startNs) / 1_000_000 }
+            val thinkingMs = thinkingMs
             val state = if (text.isEmpty() && reasoning.isNotEmpty()) GenState.Thinking(reasoning.toString(), shownTps, thinkingMs)
             else GenState.Streaming(text.toString(), reasoning.toString(), shownTps, tokens, thinkingMs)
             setGen(id, state)
@@ -587,7 +589,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
      * token, so a turn stopped while still thinking has no row yet: write one for the reasoning alone, or the panel
      * (and the "stopped" mark) would vanish with the tap.
      */
-    private suspend fun persistPartial(conversationId: String, assistantId: String?, stream: Streamer, stats: MessageStats) {
+    private suspend fun persistPartial(conversationId: String, assistantId: String?, stream: Streamer, partial: MessageStats) {
+        val stats = partial.copy(thinkingMs = stream.thinkingMs)
         when {
             assistantId != null -> c.chats.updateAssistant(assistantId, stream.textStr, stream.reasoningOrNull(), stats)
             stream.reasoningOrNull() != null -> c.chats.appendAssistant(conversationId, stream.textStr, stream.reasoningOrNull(), stats)

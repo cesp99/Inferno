@@ -51,6 +51,9 @@ data class MessageEntity(
     @ColumnInfo(defaultValue = "-1") val compactedThrough: Int = -1,
     /** Raw messages folded into this summary, cumulative across chained compactions ("Compacted N messages"). */
     @ColumnInfo(defaultValue = "0") val compactedCount: Int = 0,
+    // ---- v3 ----
+    /** Wall time the model spent inside its think tags before the first visible token ("Thought for 12 s"); 0 = no reasoning. */
+    @ColumnInfo(defaultValue = "0") val thinkingMs: Long = 0,
 )
 
 @Entity(

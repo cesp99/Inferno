@@ -173,7 +173,7 @@ fun SharedTransitionScope.MessagesList(
                         AssistantMessage(
                             text = if (streamingRow && s != null) s.text else m.content,
                             reasoning = if (streamingRow && s != null) s.reasoning else m.thinking.orEmpty(),
-                            thinkingMs = if (streamingRow && s != null) s.thinkingMs else 0L,
+                            thinkingMs = if (streamingRow && s != null) s.thinkingMs else m.stats?.thinkingMs ?: 0L,
                             streaming = streamingRow,
                             stats = m.stats,
                             showActions = !gen.isBusy,
