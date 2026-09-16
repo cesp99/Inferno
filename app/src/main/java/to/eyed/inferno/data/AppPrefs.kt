@@ -74,6 +74,17 @@ data class SettingsState(
     val selectedImageModelId: String? = null,
     /** Learned seconds per denoise step keyed EtaModel.key(modelId, px) = "<imageModelId>:<px>"; the EtaStore view of this map feeds ImageGenRepository's ETA. */
     val imageGenSecPerStep: Map<String, Float> = emptyMap(),
+    // ---- Developer mode (ui/settings/DeveloperPage.kt) ----
+    // Off by default so a normal user never sees tok/s, rings or timings; every show* flag below counts only while
+    // developerMode is on (see data/DevFlags.kt for the combined readers). The native log floor is minLogPriority.
+    val developerMode: Boolean = false,
+    val showGenerationStats: Boolean = true,    // meta line under the latest answer (tok/s, tokens, prefill, ctx, image encode)
+    val showContextMeter: Boolean = true,       // ContextRing in the model chip
+    val showTurnDetails: Boolean = true,        // Details action + TurnDetailsSheet
+    val showBenchmark: Boolean = true,          // Benchmark entry (sidebar, Advanced) + Screen.BENCH
+    val showModelTechSpecs: Boolean = true,     // quant · ctx · tok/s · KV on model rows (else size · tier · blurb · licence)
+    val showThermalInfo: Boolean = true,        // threads / thermal line in the chat empty state, chip long-press, Settings Compute row
+    val showTokenCounter: Boolean = true,       // live token count + tok/s while streaming
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore("settings")
@@ -133,6 +144,9 @@ class AppPrefs(
     suspend fun setCalibration(modelId: String, c: Calibration) = update { it.copy(calibration = it.calibration + (modelId to c)) }
     suspend fun setSelectedImageModel(id: String?) = update { it.copy(selectedImageModelId = id) }
     suspend fun setImageGenSecPerStep(key: String, secPerStep: Float) = update { it.copy(imageGenSecPerStep = it.imageGenSecPerStep + (key to secPerStep)) }
+    // ---- Developer mode ----
+    suspend fun setDeveloperMode(v: Boolean) = update { it.copy(developerMode = v) }
+    suspend fun setDevFlag(flag: DevFlag, v: Boolean) = update { flag.set(it, v) }
 
     // ---- DownloadPrefs (models/ModelRepository.kt): snapshot reads of the hot state ----
     override val allowMeteredDownloads: Boolean get() = settings.value.allowMeteredDownloads
@@ -172,6 +186,15 @@ class AppPrefs(
         val calibration = stringPreferencesKey("calibration")
         val selectedImageModelId = stringPreferencesKey("selectedImageModelId")
         val imageGenSecPerStep = stringPreferencesKey("imageGenSecPerStep")
+        // ---- Developer mode ----
+        val developerMode = booleanPreferencesKey("developerMode")
+        val showGenerationStats = booleanPreferencesKey("showGenerationStats")
+        val showContextMeter = booleanPreferencesKey("showContextMeter")
+        val showTurnDetails = booleanPreferencesKey("showTurnDetails")
+        val showBenchmark = booleanPreferencesKey("showBenchmark")
+        val showModelTechSpecs = booleanPreferencesKey("showModelTechSpecs")
+        val showThermalInfo = booleanPreferencesKey("showThermalInfo")
+        val showTokenCounter = booleanPreferencesKey("showTokenCounter")
     }
 
     private fun Preferences.toState(): SettingsState {
@@ -204,6 +227,15 @@ class AppPrefs(
             calibration = decode(this[K.calibration], d.calibration),
             selectedImageModelId = this[K.selectedImageModelId],
             imageGenSecPerStep = decode(this[K.imageGenSecPerStep], d.imageGenSecPerStep),
+            // ---- Developer mode ----
+            developerMode = this[K.developerMode] ?: d.developerMode,
+            showGenerationStats = this[K.showGenerationStats] ?: d.showGenerationStats,
+            showContextMeter = this[K.showContextMeter] ?: d.showContextMeter,
+            showTurnDetails = this[K.showTurnDetails] ?: d.showTurnDetails,
+            showBenchmark = this[K.showBenchmark] ?: d.showBenchmark,
+            showModelTechSpecs = this[K.showModelTechSpecs] ?: d.showModelTechSpecs,
+            showThermalInfo = this[K.showThermalInfo] ?: d.showThermalInfo,
+            showTokenCounter = this[K.showTokenCounter] ?: d.showTokenCounter,
         )
     }
 
@@ -235,6 +267,15 @@ class AppPrefs(
         this[K.calibration] = json.encodeToString(s.calibration)
         setOrRemove(K.selectedImageModelId, s.selectedImageModelId)
         this[K.imageGenSecPerStep] = json.encodeToString(s.imageGenSecPerStep)
+        // ---- Developer mode ----
+        this[K.developerMode] = s.developerMode
+        this[K.showGenerationStats] = s.showGenerationStats
+        this[K.showContextMeter] = s.showContextMeter
+        this[K.showTurnDetails] = s.showTurnDetails
+        this[K.showBenchmark] = s.showBenchmark
+        this[K.showModelTechSpecs] = s.showModelTechSpecs
+        this[K.showThermalInfo] = s.showThermalInfo
+        this[K.showTokenCounter] = s.showTokenCounter
     }
 
     private fun MutablePreferences.setOrRemove(key: Preferences.Key<String>, value: String?) {

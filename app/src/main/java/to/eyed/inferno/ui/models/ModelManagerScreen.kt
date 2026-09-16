@@ -38,6 +38,7 @@ import com.composables.icons.lucide.Eye
 import com.composables.icons.lucide.FolderOpen
 import com.composables.icons.lucide.Lucide
 import to.eyed.inferno.data.SettingsState
+import to.eyed.inferno.data.devModelTechSpecs
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.modelOrNull
@@ -165,6 +166,7 @@ private fun ManagerRow(
         blockedReason = blockedReason,
         calibration = settings.calibration[e.id],
         menuExtra = menuExtra,
+        techSpecs = settings.devModelTechSpecs,
         actions = ModelActions(
             onLoad = { appVm.selectAndLoad(e.id); appVm.navigate(Screen.CHAT) },
             onDownload = { if (e.download is DownloadState.Failed) appVm.download(e.id) else requestConfirm(e) },

@@ -19,9 +19,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import to.eyed.inferno.AppContainer
+import to.eyed.inferno.data.DevFlag
 import to.eyed.inferno.data.KvCachePref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
+import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
@@ -59,9 +61,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     val storage: StateFlow<StorageInfo> = c.models.storage
     val meteredConfirm: StateFlow<ModelRepository.MeteredRequest?> = c.models.meteredConfirm
 
-    val screen: StateFlow<Screen> = handle.getStateFlow(KEY_SCREEN, Screen.CHAT.name)
-        .map { runCatching { Screen.valueOf(it) }.getOrDefault(Screen.CHAT) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, Screen.CHAT)
+    /** BENCH exists only in developer mode: a stale saved screen (or a flag flipped off) lands on CHAT instead. */
+    val screen: StateFlow<Screen> = combine(handle.getStateFlow(KEY_SCREEN, Screen.CHAT.name), settings) { name, s ->
+        val wanted = runCatching { Screen.valueOf(name) }.getOrDefault(Screen.CHAT)
+        if (wanted == Screen.BENCH && !s.devBenchmark) Screen.CHAT else wanted
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, Screen.CHAT)
 
     /** No onboarding yet and nothing on disk; false until prefs are read so the splash never flashes FirstRun. */
     val showFirstRun: StateFlow<Boolean> = combine(c.prefs.loaded, settings, models) { loaded, s, m ->
@@ -148,7 +152,10 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     // ---- navigation ------------------------------------------------------------------------------------------
 
-    fun navigate(s: Screen) { handle[KEY_SCREEN] = s.name }
+    fun navigate(s: Screen) {
+        if (s == Screen.BENCH && !settings.value.devBenchmark) return   // the entry points are hidden; this backs them up
+        handle[KEY_SCREEN] = s.name
+    }
 
     /** false when already on CHAT (the system then handles back). GALLERY returns to CREATE, everything else to CHAT. */
     fun back(): Boolean = when (screen.value) {
@@ -364,6 +371,27 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun setHaptics(v: Boolean) = viewModelScope.launch { c.prefs.setHaptics(v) }
     fun setAllowMeteredDownloads(v: Boolean) = viewModelScope.launch { c.prefs.setAllowMeteredDownloads(v) }
     fun setMinLogPriority(p: Int) = viewModelScope.launch { c.prefs.setMinLogPriority(p) }
+    fun setDeveloperMode(v: Boolean) = viewModelScope.launch { c.prefs.setDeveloperMode(v) }
+    fun setDevFlag(flag: DevFlag, v: Boolean) = viewModelScope.launch { c.prefs.setDevFlag(flag, v) }
+
+    // ---- developer-mode facts (ui/settings/DeveloperPage.kt, chat thermal line) ----------------------------------
+
+    /** PowerManager.THERMAL_STATUS_* as the governor sees it. */
+    val thermalStatus: StateFlow<Int> = c.thermal.status
+    /** True while a PerfPreset.MAX generation holds sustained performance mode (MainActivity applies it to the window). */
+    val sustainedMode: StateFlow<Boolean> = c.thermal.sustainedRequested
+    /** Thread count the live context runs with right now (thermal-adjusted); 0 without a context. */
+    fun activeThreads(): Int = c.engine.activeThreads
+    /** "CPU_KLEIDIAI 1.1 GB · CPU_Mapped 0.3 GB" from the last load's llama.cpp log, "" before any load. */
+    fun modelBufferTypes(): String = runCatching { c.engine.modelBufferTypes() }.getOrDefault("")
+    /** "4 threads · pinned · thermal light · sustained off": the chat empty-state / chip long-press line (showThermalInfo). */
+    fun computeLine(): String {
+        val s = settings.value
+        val live = activeThreads().takeIf { it > 0 }
+        val threads = if (live != null && live != s.threads) "$live of ${s.threads} threads" else "${s.threads} threads"
+        val thermal = thermalName(thermalStatus.value)
+        return "$threads · ${if (s.pinBigCores) "pinned" else "free"} · thermal $thermal · sustained ${if (sustainedMode.value) "on" else "off"}"
+    }
 
     private suspend fun applySampling() {
         if (engine.value !is EngineState.Idle && engine.value !is EngineState.Generating) runCatching { c.engine.setSampling(effectiveParams()) }
@@ -404,5 +432,9 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     /** Display name for a model id that may no longer be on disk (TurnDetailsSheet for old turns). */
     fun modelDisplayName(modelId: String): String = c.models.displayName(modelId)
 
-    private companion object { const val KEY_SCREEN = "screen" }
+    companion object {
+        private const val KEY_SCREEN = "screen"
+        private val THERMAL_NAMES = listOf("nominal", "light", "moderate", "severe", "critical", "emergency", "shutdown")
+        fun thermalName(status: Int): String = THERMAL_NAMES.getOrElse(status) { status.toString() }
+    }
 }

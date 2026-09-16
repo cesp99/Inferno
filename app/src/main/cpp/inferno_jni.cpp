@@ -213,6 +213,14 @@ JNI_FN(void, backendFree)(JNIEnv *, jclass) {
     Engine::get().backend_free();
 }
 
+JNI_FN(void, setLogPriority)(JNIEnv *, jclass, jint min_log_prio) {
+    inferno::log_set_min_priority((int) min_log_prio);
+}
+
+JNI_FN(jstring, modelBufferTypes)(JNIEnv * env, jclass) {
+    return env->NewStringUTF(inferno::log_notes().c_str());   // ASCII log lines from llama.cpp
+}
+
 JNI_FN(jstring, systemInfo)(JNIEnv * env, jclass) {
     return env->NewStringUTF(llama_print_system_info());     // pure ASCII from ggml; the only NewStringUTF here
 }

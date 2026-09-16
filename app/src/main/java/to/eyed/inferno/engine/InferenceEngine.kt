@@ -64,8 +64,9 @@ class InferenceEngine internal constructor(
     val kvUsed: StateFlow<Int> = _kvUsed.asStateFlow()
     val loaded: LoadedModel? get() = _state.value.loadedOrNull
 
-    /** Native log floor for backendInit (SettingsState.minLogPriority); set before the first load. */
+    /** Native log floor (SettingsState.minLogPriority): passed to backendInit, and applied live once the backend is up. */
     @Volatile var minLogPriority: Int = Log.INFO
+        set(v) { field = v; if (backendReady) native.setLogPriority(v) }
     /** Performance preset for the ADPF / sustained-mode hints (SettingsState.perfPreset); the VM keeps it current. */
     @Volatile var perfPreset: PerfPreset = PerfPreset.AUTO
     /**
@@ -80,8 +81,8 @@ class InferenceEngine internal constructor(
     private var ctx = 0L
     @Volatile private var current: LoadedModel? = null
     private var params = GenerationParams()
-    private var backendReady = false
-    private var appliedThreads = 0          // thread count the live context runs with (thermal-adjusted)
+    @Volatile private var backendReady = false
+    @Volatile private var appliedThreads = 0          // thread count the live context runs with (thermal-adjusted)
     private var mmprojThreads = -1          // thread count the resident projector was created with (4.2)
     private var mmprojDetail: ImageDetail? = null
 
@@ -102,6 +103,12 @@ class InferenceEngine internal constructor(
     }
 
     fun systemInfo(): String = native.systemInfo()
+
+    // ---- developer-mode facts (ui/settings/DeveloperPage.kt); snapshot reads, any thread ----
+    /** Thread count the live context runs with right now (thermal-adjusted), 0 without a context. */
+    val activeThreads: Int get() = appliedThreads
+    /** Buffer types the last load put the weights in, e.g. "CPU_KLEIDIAI 1.1 GB · CPU_Mapped 0.3 GB"; "" before any load. */
+    fun modelBufferTypes(): String = if (!backendReady) "" else parseBufferTypes(native.modelBufferTypes())
 
     /** Any thread: asks the native loop to stop (generation, prefill, image encode, bench, calibration). */
     fun cancel() = native.cancel()
@@ -612,6 +619,14 @@ class InferenceEngine internal constructor(
         private const val NOT_ENOUGH_MEMORY = "Not enough memory"
         private const val NO_MEMORY_FOR_IMAGES = "Not enough memory for images with this model"
         private const val PHONE_TOO_HOT = "Phone is too hot to read images right now"
+
+        /** "load_tensors:  CPU_KLEIDIAI model buffer size =  1103.12 MiB" lines -> "CPU_KLEIDIAI 1.1 GB · ...". */
+        internal fun parseBufferTypes(lines: String): String = lines.lineSequence().mapNotNull { line ->
+            val m = Regex("""(\S+) model buffer size\s*=\s*([0-9.]+) MiB""").find(line) ?: return@mapNotNull null
+            val mib = m.groupValues[2].toDoubleOrNull() ?: return@mapNotNull null
+            val size = if (mib >= 1024) String.format(java.util.Locale.US, "%.1f GB", mib / 1024) else "${mib.toInt()} MB"
+            "${m.groupValues[1]} $size"
+        }.joinToString(" · ")
 
         fun imageMinTokens(model: LocalModel): Int = ContextManager.imageMinTokens(model)
         fun imageMaxTokens(model: LocalModel, detail: ImageDetail): Int = ContextManager.imageMaxTokens(model, detail)

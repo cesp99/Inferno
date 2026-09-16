@@ -70,13 +70,17 @@ fun TopNav(
     onOpenModelSheet: () -> Unit,
     onNewChat: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Developer mode: the context ring in the chip (and the resolved label on long-press). */
+    showContextRing: Boolean = false,
+    /** Developer mode: "4 threads · pinned · thermal nominal · sustained off" under the long-press label; null hides it. */
+    computeLine: (() -> String)? = null,
 ) {
     Column(modifier.background(Ink.Pitch)) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
             if (showDrawerToggle) {
                 GhostIconButton(Lucide.PanelLeft, S.openSidebar, onOpenDrawer, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterStart))
             }
-            ModelChip(engine, contextUsage, resolvedCtxLabel, selectedModelName, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp))
+            ModelChip(engine, contextUsage, resolvedCtxLabel.takeIf { showContextRing }, selectedModelName, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp), showRing = showContextRing, computeLine = computeLine)
             GhostIconButton(Lucide.SquarePen, S.newChat, onNewChat, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterEnd))
         }
         AnimatedVisibility(scrolled, enter = fadeIn(fastEffectsSpec()), exit = fadeOut(fastEffectsSpec())) { Hairline() }
@@ -92,10 +96,13 @@ private fun ModelChip(
     selectedModelName: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showRing: Boolean = false,
+    computeLine: (() -> String)? = null,
 ) {
     val haptics = rememberHaptics()
     val interaction = remember { MutableInteractionSource() }
     var info by remember { mutableStateOf(false) }
+    val hasInfo = (resolvedCtxLabel != null || computeLine != null) && engine !is EngineState.Idle
     Box(modifier) {
         Row(
             Modifier
@@ -106,7 +113,7 @@ private fun ModelChip(
                 .combinedClickable(
                     interactionSource = interaction, indication = null, role = Role.Button,
                     onClick = onClick,
-                    onLongClick = if (resolvedCtxLabel != null && engine !is EngineState.Idle) ({ haptics.longPress(); info = true }) else null,
+                    onLongClick = if (hasInfo) ({ haptics.longPress(); info = true }) else null,
                 )
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -133,12 +140,14 @@ private fun ModelChip(
                     if (kind == ChipKind.LOADING) (engine as? EngineState.Loading)?.progress?.let { p ->
                         Text("${(p * 100).toInt()} %", style = Numeric.copy(fontSize = 13.sp, lineHeight = 18.sp), color = Ink.I500, maxLines = 1, modifier = Modifier.widthIn(min = 32.dp))
                     }
-                    if (kind == ChipKind.READY && usage.nCtx > 0) ContextRing(usage.fraction, 14.dp, approximate = usage.approximate)
+                    if (kind == ChipKind.READY && showRing && usage.nCtx > 0) ContextRing(usage.fraction, 14.dp, approximate = usage.approximate)
                 }
             }
         }
         GlassMenu(expanded = info, onDismiss = { info = false }, minWidth = 120.dp) {
-            Text(resolvedCtxLabel ?: "", style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            // Read on open, not per frame: the compute line polls the engine's live thread count.
+            val lines = listOfNotNull(resolvedCtxLabel, computeLine?.invoke())
+            Text(lines.joinToString("\n"), style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
         }
     }
 }

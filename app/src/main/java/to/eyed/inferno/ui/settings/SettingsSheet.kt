@@ -30,6 +30,8 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.X
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
+import to.eyed.inferno.data.devGenerationStats
+import to.eyed.inferno.data.devThermalInfo
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.LoadedModel
 import to.eyed.inferno.engine.modelOrNull
@@ -105,7 +107,7 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
     SectionHeader(S.performance, Modifier.padding(top = 0.dp))
     SettingsCard {
         val custom = s.threads != s.perfPreset.threads || s.pinBigCores != s.perfPreset.pin || s.poll != s.perfPreset.poll
-        ControlRow(if (custom) "${S.preset} · ${S.custom}" else S.preset, description = perfLine(s, loaded, catalog?.estTgTps)) {
+        ControlRow(if (custom) "${S.preset} · ${S.custom}" else S.preset, description = if (s.devGenerationStats) perfLine(s, loaded, catalog?.estTgTps) else null) {
             ConnectedGroup(PerfPreset.entries.map { it.label }, if (custom) -1 else s.perfPreset.ordinal, { appVm.setPerfPreset(PerfPreset.entries[it]) })
         }
         CardDivider()
@@ -118,15 +120,17 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
         val ctxValue = plan?.takeIf { loaded != null }?.resolvedLabel?.substringBeforeLast(" · ") ?: if (s.contextSize == 0) S.presetAuto else "${String.format(Locale.US, "%,d", s.contextSize)} ${S.tokens}"
         NavRow(S.contextLength, ctxValue, onClick = { sheet = "context" })
         CardDivider()
-        ControlRow(S.imageDetail, description = imageDetailLine(s, loaded, catalog?.encodeMsAt448)) {
+        ControlRow(S.imageDetail, description = imageDetailLine(s, loaded, catalog?.encodeMsAt448, s.devGenerationStats)) {
             ConnectedGroup(listOf(S.fast, S.balanced, S.highDetail), s.imageDetail.ordinal, { appVm.setImageDetail(ImageDetail.entries[it]) })
         }
         CardDivider()
         ToggleRow(S.keepModelLoaded, s.keepModelLoaded, appVm::setKeepModelLoaded, description = S.keepModelLoadedDesc)
-        CardDivider()
-        val cpu = appVm.cpu
-        val features = listOfNotNull("dotprod".takeIf { cpu.hasDotprod }, "fp16".takeIf { cpu.hasFp16 }, "i8mm".takeIf { cpu.hasI8mm })
-        SettingRow(S.computeRow, "CPU · ${cpu.socName} · ${cpu.nBig} big of ${cpu.nCores} cores · ${features.joinToString(", ")}")
+        if (s.devThermalInfo) {
+            CardDivider()
+            val cpu = appVm.cpu
+            val features = listOfNotNull("dotprod".takeIf { cpu.hasDotprod }, "fp16".takeIf { cpu.hasFp16 }, "i8mm".takeIf { cpu.hasI8mm })
+            SettingRow(S.computeRow, "CPU · ${cpu.socName} · ${cpu.nBig} big of ${cpu.nCores} cores · ${features.joinToString(", ")} · ${appVm.computeLine()}")
+        }
     }
 
     // ---- Generation --------------------------------------------------------------------------------------------
@@ -165,7 +169,7 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
         SettingRow(S.clearImageCache, S.clearImageCacheDesc) { GlassButton(S.clear, onClick = appVm::clearImageCache) }
     }
 
-    AdvancedSections(appVm, chatVm, s, onOpenBench = onOpenBench, onOpenLicences = { sheet = "licences" })
+    AdvancedSections(appVm, chatVm, s, onOpenBench = onOpenBench, onOpenLicences = { sheet = "licences" }, developerRow = { DeveloperNavRow(appVm) })
 
     when (sheet) {
         "context" -> InfernoSheet(onDismiss = { sheet = "" }, wide = true) {
@@ -190,8 +194,11 @@ private fun perfLine(s: SettingsState, loaded: LoadedModel?, est: String?): Stri
     }
 }
 
-/** "≈ 512 image tokens, about 10 s per image": measured encode when present, else scaled from the catalog's 448 px figure. */
-private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt448: Int?): String {
+/**
+ * "≈ 512 image tokens, about 10 s per image": measured encode when present, else scaled from the catalog's 448 px
+ * figure. Without developer mode only the plain "About 10 s per image" part remains (null when nothing is known).
+ */
+private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt448: Int?, tech: Boolean): String? {
     val d = s.imageDetail
     val measured = loaded?.let { s.calibration[it.model.id]?.imageEncode?.get(d.name)?.ms }
     val ms = measured ?: encodeMsAt448?.takeIf { it > 0 && d != ImageDetail.HIGH }?.let { base ->
@@ -199,7 +206,7 @@ private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt44
         (base * scale).toLong()
     }
     val seconds = ms?.let { if (it >= 1000) "${(it + 500) / 1000} s" else "$it ms" }
-    return S.imageDetailDesc(d.maxTokens, seconds)
+    return if (tech) S.imageDetailDesc(d.maxTokens, seconds) else seconds?.let { S.aboutPerImage(it) }
 }
 
 private fun trim(v: Float): String = String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')

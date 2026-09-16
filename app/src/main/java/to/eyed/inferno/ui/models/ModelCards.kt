@@ -51,6 +51,7 @@ import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.models.DownloadService
 import to.eyed.inferno.models.DownloadState
 import to.eyed.inferno.models.ModelEntry
+import to.eyed.inferno.models.ModelTier
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.FlatMenu
 import to.eyed.inferno.ui.components.GhostIconButton
@@ -94,6 +95,8 @@ fun ModelCard(
     showMenu: Boolean = true,
     /** Extra rows at the top of the overflow menu (imports: "Add vision projector"); receives the close action. */
     menuExtra: (@Composable (close: () -> Unit) -> Unit)? = null,
+    /** Developer mode: quant · ctx · tok/s · KV in the subtitle; otherwise size · tier · licence plus the blurb. */
+    techSpecs: Boolean = false,
 ) {
     val state = entry.download
     val onDisk = entry.isDownloaded
@@ -129,7 +132,8 @@ fun ModelCard(
                     }
                 }
                 Spacer(Modifier.height(3.dp))
-                Text(subtitle(entry, calibration), style = Typography.bodyMedium, color = Ink.I500, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(subtitle(entry, calibration, techSpecs), style = Typography.bodyMedium, color = Ink.I500, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (!techSpecs) blurb(entry)?.let { Text(it, style = Typography.bodyMedium, color = Ink.I500, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             }
             Spacer(Modifier.width(12.dp))
             Trailing(entry, selected, loading, canLoad, actions, showMenu, menuExtra)
@@ -248,21 +252,38 @@ fun Pill(text: String, modifier: Modifier = Modifier) {
 
 // ---- text helpers --------------------------------------------------------------------------------------------
 
-/** "1.9 GB · Q4_0 · vision · 32k ctx · 18.4 tok/s · Apache-2.0" (measured tok/s when calibrated, else the estimate). */
-fun subtitle(entry: ModelEntry, calibration: Calibration?): String {
+/**
+ * Developer mode ([tech]): "1.9 GB · Q4_0 · vision · 32k ctx · 18.4 tok/s · KV 48 KB/tok · Apache-2.0" (measured tok/s
+ * when calibrated, else the estimate). Otherwise "1.9 GB · vision · Fast · Apache-2.0": the tier word stands in for
+ * the numbers and [blurb] adds the plain-language line.
+ */
+fun subtitle(entry: ModelEntry, calibration: Calibration?, tech: Boolean = true): String {
     val cat = entry.catalog
     val local = entry.local
     val bytes = local?.totalBytes ?: cat?.totalBytes ?: 0L
-    val quant = (local?.quant ?: cat?.text?.quant)?.name
     val vision = if (local?.hasVision ?: cat?.hasVision ?: false) S.vision else S.textOnly
+    val licence = cat?.license ?: S.importedLicence
+    if (!tech) return listOfNotNull(DownloadService.fmt(bytes), vision, cat?.let { tierWord(it.tier) }, licence).joinToString(" · ")
+    val quant = (local?.quant ?: cat?.text?.quant)?.name
     val ctx = cat?.contextMax?.let { "${ctxK(it)} ctx" }
     val tps = when {
         calibration != null && calibration.tgTps > 0 -> String.format(Locale.US, "%.1f ", calibration.tgTps) + S.tokPerSec
         cat != null -> "~${cat.estTgTps} ${S.tokPerSec}"
         else -> null
     }
-    val licence = cat?.license ?: S.importedLicence
-    return listOfNotNull(DownloadService.fmt(bytes), quant, vision, ctx, tps, licence).joinToString(" · ")
+    val kv = cat?.kvBytesPerTokenF16?.takeIf { it > 0 }?.let { "KV ${it / 1024} KB/tok" }
+    return listOfNotNull(DownloadService.fmt(bytes), quant, vision, ctx, tps, kv, licence).joinToString(" · ")
+}
+
+/** Second line for normal users: the catalog blurb, or a fixed note for imports. */
+fun blurb(entry: ModelEntry): String? = entry.catalog?.blurb ?: S.importedBlurb.takeIf { entry.local != null }
+
+/** "Fast / Balanced / Best quality" in place of tok/s numbers; the other tiers carry no speed promise. */
+fun tierWord(tier: ModelTier): String? = when (tier) {
+    ModelTier.FASTEST -> S.tierFast
+    ModelTier.BALANCED -> S.tierBalanced
+    ModelTier.QUALITY -> S.tierQuality
+    else -> null
 }
 
 fun ctxK(tokens: Int): String = if (tokens >= 1024) "${tokens / 1024}k" else "$tokens"

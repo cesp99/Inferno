@@ -23,6 +23,8 @@ object LlamaNative {
     @JvmStatic external fun backendInit(minLogPriority: Int, bigMask: Int)      // android.util.Log priority (DEBUG=3 .. ERROR=6); bigMask -> sched_setaffinity of the engine thread (4.2)
     @JvmStatic external fun backendFree()
     @JvmStatic external fun systemInfo(): String                                // llama_print_system_info() (ASCII)
+    @JvmStatic external fun setLogPriority(minLogPriority: Int)                 // live change of the backendInit floor; any thread
+    @JvmStatic external fun modelBufferTypes(): String                          // "model buffer size" log lines of the last load (developer mode); any thread
     @JvmStatic external fun cpuTopology(): IntArray                             // see Cpu.*
 
     // model

@@ -106,6 +106,8 @@ fun Sidebar(
     onOpenBench: () -> Unit,
     onClose: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    /** Developer mode: the Benchmark row in the footer. */
+    showBenchmark: Boolean = false,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var archivedOpen by rememberSaveable { mutableStateOf(false) }
@@ -177,7 +179,7 @@ fun Sidebar(
         }
         Hairline()
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            NavRow(Lucide.Gauge, S.benchmark, onClick = onOpenBench)
+            if (showBenchmark) NavRow(Lucide.Gauge, S.benchmark, onClick = onOpenBench)
             NavRow(Lucide.Settings, S.settings, onClick = onOpenSettings)
             Text(deviceSummary, style = RowMeta, color = Ink.I500, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
         }

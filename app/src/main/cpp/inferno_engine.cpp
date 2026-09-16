@@ -155,6 +155,7 @@ llama_model * Engine::model_load(const std::string & path, const std::string & m
     mp.progress_callback_user_data = &lp;
 
     const int64_t t0 = ggml_time_ms();
+    log_clear_notes();
     model_ = llama_model_load_from_file(path.c_str(), mp);
     if (!model_) {
         set_error("failed to load model: " + path);
