@@ -1,58 +1,97 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package to.eyed.inferno.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+// Corner radii: 12 controls, 16 rows, 24 cards / composer, 28 sheets.
+object Radii {
+    val control = 12.dp
+    val row = 16.dp
+    val card = 24.dp
+    val composer = 24.dp
+    val sheet = 28.dp
+}
+
+// surfaceTint = Transparent kills M3 tonal-elevation tinting on sheets and menus.
+// error = White is deliberate: errors are never coloured through the scheme, only via Ink.Danger explicitly.
+private val MonochromeScheme = darkColorScheme(
+    primary = Ink.White,
+    onPrimary = Ink.Pitch,
+    primaryContainer = whiteA(0.10f),
+    onPrimaryContainer = Ink.White,
+    secondary = Ink.I300,
+    onSecondary = Ink.Pitch,
+    secondaryContainer = whiteA(0.06f),
+    onSecondaryContainer = Ink.I100,
+    tertiary = Ink.I500,
+    onTertiary = Ink.Pitch,
+    background = Ink.Pitch,
+    onBackground = Ink.I100,
+    surface = Ink.Pitch,
+    onSurface = Ink.I100,
+    surfaceVariant = Ink.I850,
+    onSurfaceVariant = Ink.I500,
+    surfaceContainer = Ink.I900,
+    surfaceContainerLowest = Ink.Pitch,
+    surfaceContainerLow = Ink.I900,
+    surfaceContainerHigh = Ink.I850,
+    surfaceContainerHighest = Ink.I800,
+    surfaceBright = Ink.I800,
+    surfaceDim = Ink.Pitch,
+    surfaceTint = Color.Transparent,
+    error = Ink.White,
+    onError = Ink.Pitch,
+    outline = whiteA(0.10f),
+    outlineVariant = whiteA(0.06f),
+    scrim = Color(0xB3000000),
+    inverseSurface = Ink.I100,
+    inverseOnSurface = Ink.Pitch,
+    inversePrimary = Ink.Pitch,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+private val InfernoShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(Radii.control),
+    medium = RoundedCornerShape(Radii.row),
+    large = RoundedCornerShape(Radii.card),
+    largeIncreased = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(Radii.sheet),
+    extraLargeIncreased = RoundedCornerShape(32.dp),
+    extraExtraLarge = RoundedCornerShape(40.dp),
 )
 
+/**
+ * One theme: pure black canvas, white ink. No variants, no dynamic colour.
+ *
+ * `MotionScheme.standard()` (0.9 damping) rather than `expressive()` is the one-time character
+ * decision: the app wants Apple restraint, and mixing critically damped custom springs with
+ * 0.6-0.8 damped M3 component springs would make sheets overshoot while buttons do not.
+ * `LocalMinimumInteractiveComponentSize = 40.dp` keeps the 36/32 dp visual sizes while
+ * guaranteeing a 40 dp touch target on every control that opts in via
+ * `Modifier.minimumInteractiveComponentSize()`.
+ */
 @Composable
-fun InfernoTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
-    MaterialTheme(
-        colorScheme = colorScheme,
+fun InfernoTheme(content: @Composable () -> Unit) {
+    MaterialExpressiveTheme(
+        colorScheme = MonochromeScheme,
+        motionScheme = MotionScheme.standard(),
+        shapes = InfernoShapes,
         typography = Typography,
-        content = content
-    )
+    ) {
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
+            Surface(color = Ink.Pitch, contentColor = Ink.I100, content = content)
+        }
+    }
 }
