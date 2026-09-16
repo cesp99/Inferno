@@ -141,6 +141,7 @@ fun ChatPlaceholder(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: ()
     val usage by chatVm.contextUsage.collectAsStateWithLifecycle()
     val imageBusy by chatVm.imageBusy.collectAsStateWithLifecycle()
     var draft by rememberSaveable { mutableStateOf("") }
+    var modelSheet by rememberSaveable { mutableStateOf(false) }   // WP8: the real ModelSheet from the chip
     val haptics = rememberHaptics()
     val listState = rememberLazyListState()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { uris -> uris.take(2).forEach { chatVm.attachFromUri(it) } }
@@ -150,7 +151,7 @@ fun ChatPlaceholder(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: ()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             GhostIconButton(Lucide.SquarePen, S.newChat, onClick = { chatVm.newChat() })
-            ChipPill(chipText(engine), onClick = { appVm.navigate(Screen.MODELS) }, icon = Lucide.Cpu, modifier = Modifier.weight(1f))
+            ChipPill(chipText(engine), onClick = { modelSheet = true }, icon = Lucide.Cpu, modifier = Modifier.weight(1f))
             GhostIconButton(Lucide.Wand, "Create image", onClick = { appVm.navigate(Screen.CREATE) })
             GhostIconButton(Lucide.Gauge, S.benchmark, onClick = { appVm.navigate(Screen.BENCH) })
             GhostIconButton(Lucide.Settings, S.settings, onClick = { appVm.navigate(Screen.SETTINGS) })
@@ -180,6 +181,7 @@ fun ChatPlaceholder(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: ()
             else GlassButton(S.send, enabled = draft.isNotBlank() && !imageBusy, onClick = { onBeforeSend(); haptics.gestureEnd(); chatVm.send(draft.trim()); draft = "" })
         }
     }
+    if (modelSheet) to.eyed.inferno.ui.models.ModelSheet(appVm, onDismiss = { modelSheet = false }, onOpenManager = { appVm.navigate(Screen.MODELS) })
 }
 
 private fun chipText(s: EngineState): String = when (s) {
