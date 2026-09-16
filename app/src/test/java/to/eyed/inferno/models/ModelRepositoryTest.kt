@@ -40,9 +40,11 @@ class ModelRepositoryTest {
     private class FakeEngine : EngineAccess {
         override var loadedModelId: String? = null
         override var isGenerating = false
-        var unloads = 0; var clears = 0
+        override var loadedImageModelId: String? = null
+        var unloads = 0; var clears = 0; var imageUnloads = 0
         override suspend fun unload() { unloads++; loadedModelId = null }
         override suspend fun clearEstimateCache() { clears++ }
+        override suspend fun unloadImage() { imageUnloads++; loadedImageModelId = null }
     }
 
     private class FakePrefs : DownloadPrefs {
@@ -55,11 +57,17 @@ class ModelRepositoryTest {
     private class FakePlatform : DownloadPlatform {
         override var isMetered = false
         var serviceStarts = 0
+        /** Simulates ForegroundServiceStartNotAllowedException: the start is refused (and counted separately). */
+        var refuseStart = false
+        var refusedStarts = 0
         var watchers = 0
+        /** When set, the watch reports the current network during registration, like registerDefaultNetworkCallback. */
+        var fireOnRegister = false
         var onAvailable: ((Boolean) -> Unit)? = null
-        override fun startService() { serviceStarts++ }
+        override fun startService(): Boolean { if (refuseStart) { refusedStarts++; return false }; serviceStarts++; return true }
         override fun watchNetwork(onAvailable: (metered: Boolean) -> Unit): AutoCloseable {
             watchers++; this.onAvailable = onAvailable
+            if (fireOnRegister) onAvailable(isMetered)
             return AutoCloseable { watchers--; this.onAvailable = null }
         }
     }
@@ -212,6 +220,7 @@ class ModelRepositoryTest {
 
     @Test fun waitForWifiResumesOnUnmeteredNetwork() = runBlocking {
         platform.isMetered = true
+        repo.onAppForeground(true)
         repo.startDownload("fast")
         repo.waitForWifi("fast")
         assertNull(repo.meteredConfirm.value)
@@ -278,6 +287,7 @@ class ModelRepositoryTest {
 
     @Test fun networkLossPausesWithReasonAndReconnectResumes() = runBlocking {
         dispatcher.effect = SocketEffect.CloseSocket()
+        repo.onAppForeground(true)
         repo.startDownload("fast")
         runQueue().join()
         val paused = state("fast") as DownloadState.Paused
@@ -289,6 +299,122 @@ class ModelRepositoryTest {
         runQueue().join()
         assertEquals(DownloadState.Downloaded, state("fast"))
         assertEquals(0, platform.watchers)
+    }
+
+    @Test fun backgroundNetworkCallbackNeverStartsTheServiceForegroundDoes() = runBlocking {
+        // Android 12+: startForegroundService from a ConnectivityManager callback while backgrounded throws. The
+        // reconnect must therefore only be remembered; ON_START restarts the queue.
+        platform.fireOnRegister = true
+        dispatcher.effect = SocketEffect.CloseSocket()
+        repo.startDownload("fast")
+        runQueue().join()
+        assertEquals("No connection", (state("fast") as DownloadState.Paused).reason)
+        assertEquals(1, platform.watchers)
+        assertEquals("registration replay / background reconnect must not start the FGS", 1, platform.serviceStarts)
+        platform.onAvailable!!(false)
+        assertEquals(1, platform.serviceStarts)
+        assertTrue(state("fast") is DownloadState.Paused)
+
+        repo.onAppForeground(true)
+        assertEquals(2, platform.serviceStarts)
+        assertEquals(DownloadState.Queued, state("fast"))
+        assertEquals(0, platform.watchers)
+        runQueue().join()
+        assertEquals(DownloadState.Downloaded, state("fast"))
+
+        // Foregrounded: the callback restarts right away.
+        repo.onAppForeground(false); repo.onAppForeground(true)
+        platform.isMetered = true
+        repo.startDownload("bal"); repo.waitForWifi("bal")
+        platform.isMetered = false
+        platform.onAvailable!!(false)
+        assertEquals(DownloadState.Queued, state("bal"))
+        assertEquals(3, platform.serviceStarts)
+    }
+
+    @Test fun systemPauseDoesNotArmTheNetworkWatch() = runBlocking {
+        // onTimeout: the dataSync budget is exhausted, a reconnect could not start the service anyway.
+        platform.fireOnRegister = true
+        dispatcher.throttle = true
+        repo.startDownload("bal"); repo.startDownload("fast")
+        val q = runQueue()
+        await("transferring") { state("bal") is DownloadState.Downloading }
+        val starts = platform.serviceStarts
+        repo.pauseAll("Paused by the system")
+        q.join()
+        assertEquals(0, platform.watchers)
+        assertEquals(starts, platform.serviceStarts)
+        assertEquals("Paused by the system", (state("bal") as DownloadState.Paused).reason)
+        assertEquals("Paused by the system", (state("fast") as DownloadState.Paused).reason)
+        repo.onAppForeground(true)
+        assertEquals(DownloadState.Queued, state("bal")); assertEquals(DownloadState.Queued, state("fast"))
+        dispatcher.throttle = false
+        runQueue().join()
+        assertEquals(DownloadState.Downloaded, state("bal")); assertEquals(DownloadState.Downloaded, state("fast"))
+    }
+
+    @Test fun refusedServiceStartRollsBackAndForegroundRetries() = runBlocking {
+        platform.refuseStart = true
+        repo.startDownload("fast")
+        assertEquals(1, platform.refusedStarts); assertEquals(0, platform.serviceStarts)
+        assertEquals("Paused by the system", (state("fast") as DownloadState.Paused).reason)
+        assertTrue(repo.isQueueEmpty)
+        platform.refuseStart = false
+        repo.onAppForeground(true)
+        assertEquals(1, platform.serviceStarts)
+        assertEquals(DownloadState.Queued, state("fast"))
+        runQueue().join()
+        assertEquals(DownloadState.Downloaded, state("fast"))
+    }
+
+    @Test fun storageGateDropsAnAutoResumedIdInsteadOfRetryingForever() = runBlocking {
+        val notices = CopyOnWriteArrayList<String>()
+        val collector = scope.launch { repo.notice.collect { notices += it } }
+        delay(50)
+        platform.isMetered = true
+        repo.onAppForeground(true)
+        repo.startDownload("bal"); repo.waitForWifi("bal")
+        assertEquals(1, platform.watchers)
+        freeBytes = ModelRepository.FREE_SPACE_MARGIN + catalog[0].totalBytes - 1
+        platform.isMetered = false
+        platform.onAvailable!!(false)
+        await("notice") { notices.size == 1 }
+        assertEquals("Not enough storage for this download", notices.single())
+        assertEquals(DownloadState.Failed("Not enough storage", true), state("bal"))
+        assertEquals("watch closed, no more callbacks", 0, platform.watchers)
+        assertEquals(0, platform.serviceStarts)
+        collector.cancel()
+    }
+
+    @Test fun deleteUnloadsAnImageModelHeldBySdcpp() = runBlocking {
+        val ds = ImageModelCatalog.dreamShaper.id
+        engine.loadedImageModelId = ds
+        repo.delete(ImageModelCatalog.sdxs.id)
+        assertEquals(0, engine.imageUnloads)
+        repo.delete(ds)
+        assertEquals(1, engine.imageUnloads); assertNull(engine.loadedImageModelId)
+        engine.loadedImageModelId = ds
+        repo.deleteAll()
+        assertEquals(2, engine.imageUnloads)
+    }
+
+    @Test fun discardPartialLeavesTheSharedTaesdToAQueuedImageModel() = runBlocking {
+        val ds = ImageModelCatalog.dreamShaper; val sd = ImageModelCatalog.sdxs
+        val taesdPart = files.partFile(files.fileFor(ImageModelCatalog.taesd.toDownload(ImageModelCatalog.TAESD_DIR_ID)))
+        val sdPart = files.partFile(files.fileFor(sd.file.toDownload(sd.id)))
+        sdPart.makeSparseGguf(4096); taesdPart.makeSparseGguf(4096)
+        repo.refreshNow()
+        assertTrue(state(sd.id) is DownloadState.Paused)
+        repo.startDownload(ds.id)                    // queued (the queue is not running), about to need the TAESD file
+        assertEquals(DownloadState.Queued, state(ds.id))
+        repo.discardPartial(sd.id)
+        await("discarded") { state(sd.id) == DownloadState.NotDownloaded }
+        assertFalse(sdPart.exists())
+        assertTrue("shared TAESD partial belongs to the queued transfer", taesdPart.exists())
+        repo.cancelDownload(ds.id)               // nothing else wants the TAESD file now: the discard takes it too
+        sdPart.makeSparseGguf(4096); repo.refreshNow()
+        repo.discardPartial(sd.id)
+        await("discarded with taesd") { !taesdPart.exists() }
     }
 
     @Test fun notFoundFailsWithoutPartial() = runBlocking {

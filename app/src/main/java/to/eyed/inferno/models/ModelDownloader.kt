@@ -3,7 +3,11 @@ package to.eyed.inferno.models
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -61,10 +65,13 @@ class ModelDownloader(
         onProgress: (downloaded: Long, total: Long, bps: Long) -> Unit,
         onVerifying: () -> Unit = {},
     ) = withContext(Dispatchers.IO) {
-        if (dest.isFile && dest.length() == spec.sizeBytes) { onProgress(spec.sizeBytes, spec.sizeBytes, 0); return@withContext }
-        dest.parentFile?.mkdirs()
         val part = files.partFile(dest)
         val json = files.partJsonFile(dest)
+        if (dest.isFile && dest.length() == spec.sizeBytes) {
+            json.delete()   // orphaned when the process died between the rename and the delete below
+            onProgress(spec.sizeBytes, spec.sizeBytes, 0); return@withContext
+        }
+        dest.parentFile?.mkdirs()
         try {
             var restarted = false
             while (true) {
@@ -75,8 +82,10 @@ class ModelDownloader(
             }
             onVerifying()
             verify(spec, part)
-            json.delete()
+            // Rename first: dying between the two steps must leave `dest` (short-circuited above), never a
+            // complete-sized .part without its json, which transfer() would treat as unknown and redownload.
             if (!part.renameTo(dest)) throw DownloadException("Could not move the file into place", resumable = true)
+            json.delete()
             onProgress(spec.sizeBytes, spec.sizeBytes, 0)
         } catch (e: DownloadException) {
             if (!e.resumable) { part.delete(); json.delete() }
@@ -85,6 +94,7 @@ class ModelDownloader(
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
+            ensureActive()          // call.cancel() makes read() throw; report the cancellation, not "No connection"
             val mapped = mapIo(e)
             if (!mapped.resumable) { part.delete(); json.delete() }
             log("${spec.fileName}: ${e.javaClass.simpleName}: ${e.message} -> ${mapped.message}")
@@ -113,7 +123,22 @@ class ModelDownloader(
         }.build()
         log("GET ${spec.fileName} from $partSize" + (if (partSize > 0) " (Range" + (if (meta.etag != null) " + If-Range)" else ")") else ""))
 
-        client.newCall(request).await().use { response ->
+        val call = client.newCall(request)
+        // source.read() is a blocking socket read that only notices cancellation when data arrives (or readTimeout
+        // fires, 60 s). Cancel the call itself when the job is cancelled so a pause on a stalled link is immediate.
+        return coroutineScope {
+            val abort = launch { try { awaitCancellation() } finally { if (!this@coroutineScope.isActive) call.cancel() } }
+            try { readBody(spec, part, json, meta, partSize, call, onProgress) } finally { abort.cancel() }
+        }
+    }
+
+    /** One HTTP exchange: status handling, then the body appended to `part`. Returns RESTART when the resume was refused. */
+    private suspend fun readBody(
+        spec: DownloadableFile, part: File, json: File, meta: PartMeta, startSize: Long, call: Call,
+        onProgress: (Long, Long, Long) -> Unit,
+    ): Outcome {
+        var partSize = startSize
+        call.await().use { response ->
             val code = response.code
             val etag = response.header("ETag")
             when {
@@ -168,6 +193,7 @@ class ModelDownloader(
                 out.flush()
                 out.fd.sync()       // the rename must never race ahead of the data on a power loss
             }
+            coroutineContext.ensureActive()     // a cancelled call may end the stream early: that is a pause, not a network loss
             if (downloaded != spec.sizeBytes) throw DownloadException("No connection", resumable = true)   // stream ended early
             onProgress(downloaded, spec.sizeBytes, bps)
         }
@@ -213,7 +239,8 @@ class ModelDownloader(
 
     private suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
         enqueue(object : Callback {
-            override fun onResponse(call: Call, response: Response) { cont.resume(response) }
+            // Resuming an already-cancelled continuation is a no-op: close the body then, or the connection leaks.
+            override fun onResponse(call: Call, response: Response) { cont.resume(response) { _, _, _ -> response.close() } }
             override fun onFailure(call: Call, e: IOException) { if (!cont.isCancelled) cont.resumeWithException(e) }
         })
         cont.invokeOnCancellation { cancel() }

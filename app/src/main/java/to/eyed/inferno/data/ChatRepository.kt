@@ -38,6 +38,14 @@ data class Conversation(val id: String, val title: String, val createdAt: Long, 
 class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil) {
     val conversations: Flow<List<Conversation>> = dao.conversations().map { list -> list.map { it.toConversation() } }
 
+    /**
+     * Image ids [truncateFrom] unreferenced but did not release yet. ChatViewModel.editAndResend truncates from the
+     * edited user message and then re-attaches its images through [appendUser]; releasing them inside truncateFrom
+     * would delete the very files the new row points at. So the release is deferred to the next write, by which
+     * time the re-attached ids have a reference again and only the truly orphaned ones go.
+     */
+    private val heldBack = LinkedHashSet<String>()
+
     fun messages(conversationId: String): Flow<List<ChatMessage>> =
         dao.messages(conversationId).map { rows -> rows.map { it.toChatMessage() } }
 
@@ -61,6 +69,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         val conv = dao.conversation(conversationId)
         if (conv != null && conv.title.isBlank() && text.isNotBlank()) dao.rename(conversationId, titleFrom(text), now)
         else dao.touch(conversationId, now)
+        flushHeldBack()     // after the insert: ids re-attached by an edit have their reference back
         return MessageWithImages(m, rows).toChatMessage()
     }
 
@@ -74,6 +83,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         val m = if (stats != null) base.withStats(stats) else base
         dao.insertMessage(m, emptyList())
         if (stats?.modelId != null) dao.setModel(conversationId, stats.modelId, now) else dao.touch(conversationId, now)
+        flushHeldBack()
         return MessageWithImages(m, emptyList()).toChatMessage()
     }
 
@@ -90,6 +100,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         )
         dao.insertMessage(m, emptyList())
         dao.touch(conversationId, now)
+        flushHeldBack()
         return MessageWithImages(m, emptyList()).toChatMessage()
     }
 
@@ -102,11 +113,15 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         if (stats?.finishReason != null) dao.touch(cur.conversationId, System.currentTimeMillis())
     }
 
-    /** Regenerate / edit: deletes messages with orderIndex >= [orderIndex]; their images are released when no other message references them. */
+    /**
+     * Regenerate / edit: deletes messages with orderIndex >= [orderIndex]. Their images are released (when no other
+     * message references them) by the next write, not here, so a caller may re-attach them with [appendUser] first.
+     */
     suspend fun truncateFrom(conversationId: String, orderIndex: Int) {
+        flushHeldBack()
         val ids = dao.imageIdsFrom(conversationId, orderIndex)
         dao.deleteFrom(conversationId, orderIndex)
-        releaseImages(ids)
+        synchronized(heldBack) { heldBack += ids }
     }
 
     suspend fun message(messageId: String): ChatMessage? = dao.messageById(messageId)?.toChatMessage()
@@ -120,12 +135,14 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         val ids = dao.imageIdsFrom(conversationId, 0)
         dao.deleteConversation(conversationId)     // messages + message_images cascade
         releaseImages(ids)
+        flushHeldBack()
     }
 
     suspend fun deleteAll() {
         val ids = dao.allImageIds()
         dao.deleteAll()
         releaseImages(ids)
+        flushHeldBack()
     }
 
     suspend fun setTrimmedBefore(conversationId: String, orderIndex: Int) = dao.setTrimmedBefore(conversationId, orderIndex)
@@ -133,6 +150,12 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
 
     private suspend fun releaseImages(ids: List<String>) {
         for (id in ids) imageUtil.deleteIfUnreferenced(id, dao.imageRefs(id))
+    }
+
+    /** Releases what [truncateFrom] left behind, minus anything a message references again by now. */
+    private suspend fun flushHeldBack() {
+        val ids = synchronized(heldBack) { heldBack.toList().also { heldBack.clear() } }
+        if (ids.isNotEmpty()) releaseImages(ids)
     }
 
     private fun ConversationEntity.toConversation() = Conversation(id, title, createdAt, updatedAt, pinned, archived, modelId, trimmedBefore)
