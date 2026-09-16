@@ -20,6 +20,7 @@ import to.eyed.inferno.imagegen.ImageSizePreset
 import to.eyed.inferno.models.DownloadState
 import to.eyed.inferno.models.ImageCatalogModel
 import to.eyed.inferno.models.ImageModelCatalog
+import to.eyed.inferno.ui.S
 
 /**
  * Thin VM over ImageGenRepository (12.5): prompt, model choice, size preset, steps, seed, generate / cancel,
@@ -80,10 +81,10 @@ class ImageGenViewModel(private val c: AppContainer, private val handle: SavedSt
 
     fun generate() {
         val text = prompt.value.trim()
-        if (text.isEmpty()) { _notice.value = "Describe the image first"; return }
-        if (c.engine.state.value is to.eyed.inferno.engine.EngineState.Generating) { _notice.value = "Finish the current answer first"; return }
+        if (text.isEmpty()) { _notice.value = S.describeFirst; return }
+        if (c.engine.state.value is to.eyed.inferno.engine.EngineState.Generating) { _notice.value = S.finishCurrentAnswer; return }
         val started = c.imageGen.generate(ImageGenParams(_modelId.value, text, size.value, steps.value, seed.value))
-        if (started == null && state.value is ImageGenUiState.NeedsDownload) _notice.value = "Download the image model first"
+        if (started == null && state.value is ImageGenUiState.NeedsDownload) _notice.value = S.downloadImageModelFirst
     }
 
     /** Same seed, same prompt: the repository keeps the model loaded so this starts immediately. */
@@ -99,15 +100,15 @@ class ImageGenViewModel(private val c: AppContainer, private val handle: SavedSt
     /** MediaStore Pictures/Inferno; returns the item Uri through [onSaved] for a share/open action. */
     fun saveToPhotos(record: GenerationRecord, onSaved: (Uri) -> Unit = {}) = viewModelScope.launch {
         runCatching { c.generatedImages.exportToPictures(record) }
-            .onSuccess { _notice.value = "Saved to Photos"; onSaved(it) }
-            .onFailure { _notice.value = it.message ?: "Couldn't save to Photos" }
+            .onSuccess { _notice.value = S.savedToPhotos; onSaved(it) }
+            .onFailure { _notice.value = it.message ?: S.couldNotSaveToPhotos }
     }
 
     /** Share = export to Photos then hand the MediaStore Uri to the chooser (FileProvider does not expose files/images). */
     fun share(record: GenerationRecord, onReady: (Uri) -> Unit) = viewModelScope.launch {
         runCatching { c.generatedImages.exportToPictures(record) }
             .onSuccess(onReady)
-            .onFailure { _notice.value = it.message ?: "Couldn't share the image" }
+            .onFailure { _notice.value = it.message ?: S.couldNotShareImage }
     }
 
     private companion object {

@@ -191,10 +191,16 @@ private fun CopyChip(onCopy: () -> Unit) {
  * chunks. Pure Kotlin: covered by MarkdownChunkerTest.
  */
 object MarkdownChunker {
+    private val fenceStart = Regex("^(`{3,}|~{3,})(.*)$")
+
     fun chunks(source: String): List<String> {
         val chunks = mutableListOf<String>()
         val current = mutableListOf<String>()
-        var inFence = false
+        // CommonMark fences: the opener is 3+ of one char (a backtick opener's info string may not contain a
+        // backtick, so "```ls``` lists files" is inline code); the closer is the same char, at least as long, alone.
+        // A plain toggle would flip on such lines and glue the rest of the answer into one re-parsed chunk.
+        var fenceChar: Char? = null
+        var fenceLen = 0
         val lines = source.split("\n")
 
         fun flush() {
@@ -204,12 +210,22 @@ object MarkdownChunker {
 
         for ((index, line) in lines.withIndex()) {
             val trimmed = line.trim()
-            if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-                inFence = !inFence
-                current.add(line)
-                continue
+            val m = fenceStart.matchEntire(trimmed)
+            if (m != null) {
+                val marker = m.groupValues[1]
+                val rest = m.groupValues[2]
+                if (fenceChar == null) {
+                    if (marker[0] == '~' || !rest.contains('`')) {
+                        fenceChar = marker[0]; fenceLen = marker.length
+                        current.add(line); continue
+                    }
+                } else if (marker[0] == fenceChar && marker.length >= fenceLen && rest.isBlank()) {
+                    fenceChar = null; fenceLen = 0
+                    current.add(line); continue
+                }
+                // Otherwise ordinary content (inside a fence, or inline code text).
             }
-            if (trimmed.isEmpty() && !inFence) {
+            if (trimmed.isEmpty() && fenceChar == null) {
                 val prevIsItem = current.lastOrNull()?.let(::isListItem) ?: false
                 var nextIsItem = false
                 for (i in (index + 1) until lines.size) {

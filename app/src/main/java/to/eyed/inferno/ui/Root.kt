@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -109,9 +110,15 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
             }
         }
 
-        // Model Ready -> one Confirm, only while the activity is RESUMED (6.7).
-        LaunchedEffect(engine is EngineState.Ready) {
-            if (engine is EngineState.Ready && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) haptics.confirm()
+        // Model Ready -> one Confirm, only on a load completing (Loading -> Ready) and only while RESUMED (6.7).
+        // Keyed on the transition, not on `is Ready`: every turn goes Ready -> Generating -> Ready and ChatRoot
+        // already plays the Done confirm.
+        LaunchedEffect(Unit) {
+            var prev: EngineState = engine
+            snapshotFlow { engine }.collect { s ->
+                if (s is EngineState.Ready && prev is EngineState.Loading && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) haptics.confirm()
+                prev = s
+            }
         }
 
         // Pending intents: notification Stop, share-to-Inferno.
@@ -120,8 +127,11 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
                 null -> Unit
                 PendingAction.Stop -> { chatVm.cancel(); appVm.consumePending() }
                 is PendingAction.Share -> {
+                    // On a cold start the share is enqueued before prefs are read, while showFirstRun is still false:
+                    // decide from the suspending check instead (ignored on FirstRun, 6.1 flow 9).
+                    val firstRun = container.isCpuSupported && appVm.firstRunAfterPrefs()
                     when {
-                        !container.isCpuSupported || showFirstRun -> Unit
+                        !container.isCpuSupported || firstRun -> Unit
                         chatVm.gen.value.isBusy -> appVm.notice(S.finishCurrentAnswer)
                         else -> { appVm.navigate(Screen.CHAT); chatVm.newChat(); p.uris.take(2).forEach { chatVm.attachFromUri(it) } }
                     }
@@ -146,7 +156,7 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
             ) {
                 Column(Modifier.padding(horizontal = 16.dp).padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     notice?.let { ErrorNotice(it, onDismiss = appVm::dismissNotice) }
-                    if (isHot) ChipPill(S.phoneIsHot, onClick = {}, icon = Lucide.Thermometer, textColor = Ink.I300)
+                    if (isHot) ChipPill(S.phoneIsHot, icon = Lucide.Thermometer, textColor = Ink.I300)
                 }
             }
 

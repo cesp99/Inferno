@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import to.eyed.inferno.AppContainer
 import to.eyed.inferno.data.DevFlag
 import to.eyed.inferno.data.ContextPolicy
@@ -42,6 +45,7 @@ import to.eyed.inferno.models.ModelCatalog
 import to.eyed.inferno.models.ModelEntry
 import to.eyed.inferno.models.ModelRepository
 import to.eyed.inferno.models.StorageInfo
+import to.eyed.inferno.ui.S
 
 enum class Screen { CHAT, MODELS, SETTINGS, BENCH, CREATE, GALLERY }
 
@@ -128,7 +132,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         if (crashed != null) {
             c.prefs.setLastLoadCrash(crashed)
             c.prefs.setLoadAttempt(null)
-            notice("Inferno crashed while loading ${c.models.displayName(crashed)}. Tap the model chip to try again or choose a smaller context.")
+            notice(S.crashedWhileLoading(c.models.displayName(crashed)))
             return
         }
         val selected = s.selectedModelId ?: return
@@ -151,6 +155,16 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         }
     }
 
+    /**
+     * [showFirstRun] once prefs and the disk scan are in; suspends until then so a share-to-Inferno on a cold start
+     * (enqueued before the first composition, while showFirstRun is still false) cannot slip past the FirstRun gate.
+     */
+    suspend fun firstRunAfterPrefs(): Boolean {
+        c.prefs.loaded.first { it }
+        models.first { it.isNotEmpty() }
+        return !settings.value.onboardingDone && models.value.none { it.isDownloaded }
+    }
+
     // ---- navigation ------------------------------------------------------------------------------------------
 
     fun navigate(s: Screen) {
@@ -167,7 +181,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     // ---- intents ---------------------------------------------------------------------------------------------
 
-    /** Maps ACTION_SEND (image mime) and the notification Stop extra, then strips the intent so a config change never replays it. */
+    /**
+     * Maps ACTION_SEND (image mime) and the notification Stop extra, then strips the intent so a config change never
+     * replays it. The strip only covers the in-process Intent: after a process death the system re-delivers the
+     * original one, so MainActivity only enqueues in onCreate when savedInstanceState is null.
+     */
     fun enqueue(intent: Intent?) {
         intent ?: return
         val action: PendingAction? = when {
@@ -192,10 +210,15 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     /** Plan + load (+ calibration bench on the very first load of a model). Sets selectedModelId and the crash guard. */
     fun selectAndLoad(modelId: String) {
-        val local = c.models.local(modelId) ?: run { notice("${c.models.displayName(modelId)} is not downloaded"); return }
-        loadJob?.cancel()
+        val local = c.models.local(modelId) ?: run { notice(S.notDownloaded(c.models.displayName(modelId))); return }
+        // Join the previous load before arming the new guard, so its cancellation clear cannot land after our set.
+        val previous = loadJob
         _loadInProgress.value = true
-        loadJob = viewModelScope.launch { try { loadNow(local) } finally { _loadInProgress.value = false } }
+        loadJob = viewModelScope.launch {
+            previous?.cancelAndJoin()
+            _loadInProgress.value = true
+            try { loadNow(local) } finally { _loadInProgress.value = false }
+        }
     }
 
     private val _loadInProgress = MutableStateFlow(false)
@@ -204,7 +227,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     fun unload() {
         loadJob?.cancel()
-        viewModelScope.launch { runCatching { c.engine.unload() }.onFailure { notice(it.message ?: "Could not unload") } }
+        viewModelScope.launch { runCatching { c.engine.unload() }.onFailure { notice(it.message ?: S.couldNotUnload) } }
     }
 
     /** Context page Apply: 0 = Auto. Persists, then rebuilds the context (deferred while generating). */
@@ -239,14 +262,16 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             c.prefs.setLoadAttempt(null)
             firstTurnPending = true
             when {
-                plan.clampedFrom != null -> notice("Context reduced to ${ContextManager.tokens(plan.config.nCtx)} tokens to fit in memory")
-                local.hasVision && !plan.visionAllowed -> notice("Not enough memory for images with this model")
+                plan.clampedFrom != null -> notice(S.contextReducedTo(ContextManager.tokens(plan.config.nCtx)))
+                local.hasVision && !plan.visionAllowed -> notice(S.noMemoryForVision)
             }
         } catch (e: CancellationException) {
+            // A user-cancelled load (Unload, another model picked) is not a crash: disarm the guard.
+            withContext(NonCancellable) { c.prefs.setLoadAttempt(null) }
             throw e
         } catch (e: Exception) {
             c.prefs.setLoadAttempt(null)
-            notice(e.message ?: "Could not load the model")
+            notice(e.message ?: S.couldNotLoadModel)
         }
     }
 
@@ -273,12 +298,12 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            notice(e.message ?: "Could not apply the setting")
+            notice(e.message ?: S.couldNotApplySetting)
         }
     }
     private suspend fun reloadOrDefer() {
         when (engine.value) {
-            is EngineState.Generating, is EngineState.Loading -> { deferredReload = true; notice("Applied after reload") }
+            is EngineState.Generating, is EngineState.Loading -> { deferredReload = true; notice(S.appliedAfterReload) }
             is EngineState.Idle, is EngineState.Error -> Unit
             else -> reloadCurrent()
         }
@@ -289,7 +314,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         when (engine.value) {
             is EngineState.Generating, is EngineState.Loading -> deferredThreads = true
             is EngineState.Idle, is EngineState.Error -> Unit
-            else -> runCatching { c.engine.setThreads(s.threads, s.pinBigCores, s.poll) }.onFailure { notice(it.message ?: "Could not change threads") }
+            else -> runCatching { c.engine.setThreads(s.threads, s.pinBigCores, s.poll) }.onFailure { notice(it.message ?: S.couldNotChangeThreads) }
         }
     }
 
@@ -323,11 +348,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     /** The planner's memory budget right now (availMem minus the LMK margin); the context page bar is estimate / budget. */
     fun budgetBytes(): Long = ContextManager.budgetBytes(c.cpu.availRamBytes())
     /** Native ggml system-info line for Settings > Advanced > System info (binds the JNI lazily; supported CPUs only). */
-    fun systemInfo(): String = runCatching { c.engine.systemInfo() }.getOrElse { it.message ?: "unavailable" }
+    fun systemInfo(): String = runCatching { c.engine.systemInfo() }.getOrElse { it.message ?: S.systemInfoUnavailable }
     /** POST_NOTIFICATIONS granted and the app not muted: drives the "Enable notifications" notice in the model manager. */
     val notificationsEnabled: Boolean get() = c.notifications.enabled
     /** Clears the camera capture cache (Settings > Storage > Clear image cache). */
-    fun clearImageCache() { viewModelScope.launch { runCatching { c.images.clearCache() }; notice("Image cache cleared") } }
+    fun clearImageCache() { viewModelScope.launch { runCatching { c.images.clearCache() }; notice(S.imageCacheCleared) } }
 
     // ---- downloads / storage ---------------------------------------------------------------------------------
 
@@ -337,16 +362,16 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun cancelDownload(modelId: String) = c.models.cancelDownload(modelId)
     fun discardPartial(modelId: String) = c.models.discardPartial(modelId)
     fun deleteModel(modelId: String) {
-        viewModelScope.launch { runCatching { c.models.delete(modelId) }.onFailure { notice(it.message ?: "Could not delete") } }
+        viewModelScope.launch { runCatching { c.models.delete(modelId) }.onFailure { notice(it.message ?: S.couldNotDelete) } }
     }
     fun deleteAllModels() {
-        viewModelScope.launch { runCatching { c.models.deleteAll() }.onFailure { notice(it.message ?: "Could not delete") } }
+        viewModelScope.launch { runCatching { c.models.deleteAll() }.onFailure { notice(it.message ?: S.couldNotDelete) } }
     }
     fun importModel(uri: Uri, displayName: String?, isMmproj: Boolean, pairWith: String?) {
         viewModelScope.launch {
             runCatching { c.models.import(uri, displayName, isMmproj, pairWith) }
-                .onSuccess { notice("Imported ${it.displayName}") }
-                .onFailure { notice(it.message ?: "Import failed") }
+                .onSuccess { notice(S.importedModel(it.displayName)) }
+                .onFailure { notice(it.message ?: S.importFailed) }
         }
     }
     fun finishOnboarding() { viewModelScope.launch { c.prefs.setOnboardingDone(true) } }
@@ -416,9 +441,12 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         engine.value.modelOrNull?.id?.let { c.prefs.setLoadAttempt(it) }
     }
 
-    /** First Done after a load: the model is known-good on this phone. */
+    /**
+     * The first turn after a load ended in Kotlin (Done, Error, Stop): the model is known-good on this phone. Not
+     * while another load is in flight, because then the armed guard belongs to that load.
+     */
     fun markFirstTurnOk() {
-        viewModelScope.launch { if (settings.value.loadAttemptModelId != null) c.prefs.setLoadAttempt(null) }
+        viewModelScope.launch { if (settings.value.loadAttemptModelId != null && !_loadInProgress.value) c.prefs.setLoadAttempt(null) }
     }
 
     // ---- additive UI helpers (WP7) ---------------------------------------------------------------------------
@@ -427,7 +455,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     val deviceSummary: String by lazy {
         val gb = String.format(java.util.Locale.US, "%.1f GB", c.cpu.totalRamBytes / 1e9)
         val cores = if (c.cpu.nBig > 0) "${c.cpu.nBig} big cores" else "${c.cpu.nCores} cores"
-        listOf(c.cpu.socName.takeIf { it.isNotBlank() } ?: "CPU", cores, gb).joinToString(" · ")
+        listOf(c.cpu.socName.takeIf { it.isNotBlank() } ?: S.cpuFallbackName, cores, gb).joinToString(" · ")
     }
 
     /** Display name for a model id that may no longer be on disk (TurnDetailsSheet for old turns). */

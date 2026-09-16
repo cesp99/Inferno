@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,6 +22,7 @@ import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.ContextConfig
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.KvCacheType
+import to.eyed.inferno.ui.S
 import java.io.File
 
 /**
@@ -46,7 +48,7 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
     /** Current configuration, pp512 / tg128 x 3. */
     fun runQuick() = start { cfg ->
         val r = bench(reps = 3, weight = 1f, base = 0f)
-        addRow("Quick", cfg, r.ppTps, r.tgTps)
+        addRow(S.benchQuick, cfg, r.ppTps, r.tgTps)
         updateCalibration(cfg, r.ppTps, r.tgTps)
     }
 
@@ -55,26 +57,45 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
      * (validates the kvTypeFor threshold on this phone). Rows that match the current preset refresh the calibration.
      */
     fun runMatrix() = start { cfg ->
-        val variants = listOf(Triple(4, true, "4 pinned"), Triple(4, false, "4 unpinned"), Triple(3, true, "3 pinned"), Triple(8, false, "8 threads"))
+        val variants = listOf(Triple(4, true, S.bench4Pinned), Triple(4, false, S.bench4Unpinned), Triple(3, true, S.bench3Pinned), Triple(8, false, S.bench8Threads))
         val total = variants.size + 2
         var i = 0
-        for ((n, pin, label) in variants) {
-            c.engine.setThreads(n, pin, cfg.poll)
-            val r = bench(reps = 1, weight = 1f / total, base = i.toFloat() / total)
-            addRow(label, cfg.copy(nThreads = n, nThreadsBatch = n, bigCoresOnly = pin), r.ppTps, r.tgTps)
-            if (n == cfg.nThreads && pin == cfg.bigCoresOnly) updateCalibration(cfg, r.ppTps, r.tgTps)
-            i++
+        var threadsChanged = false
+        var ctxChanged = false
+        try {
+            for ((n, pin, label) in variants) {
+                threadsChanged = true
+                c.engine.setThreads(n, pin, cfg.poll)
+                val r = bench(reps = 1, weight = 1f / total, base = i.toFloat() / total)
+                addRow(label, cfg.copy(nThreads = n, nThreadsBatch = n, bigCoresOnly = pin), r.ppTps, r.tgTps)
+                if (n == cfg.nThreads && pin == cfg.bigCoresOnly) updateCalibration(cfg, r.ppTps, r.tgTps)
+                i++
+            }
+            c.engine.setThreads(cfg.nThreads, cfg.bigCoresOnly, cfg.poll)
+            threadsChanged = false
+            for (kv in listOf(KvCacheType.F16, KvCacheType.Q8_0)) {
+                val big = cfg.copy(nCtx = 16_384, kvType = kv, flashAttention = true)
+                // Set before the call: a reconfigure that fails at contextCreate has already freed the old context.
+                ctxChanged = true
+                val ok = runCatching { c.engine.reconfigure(big) }.onFailure { if (it is CancellationException) throw it; _notice.value = S.benchVariantSkipped(kv.name, it.message) }.isSuccess
+                if (!ok) { i++; continue }
+                val r = bench(reps = 1, weight = 1f / total, base = i.toFloat() / total)
+                addRow(S.benchTg16k(kv.name), big, r.ppTps, r.tgTps)
+                i++
+            }
+            c.engine.reconfigure(cfg)
+            ctxChanged = false
+        } finally {
+            // Stop (job.cancel) or a failing row must not leave the user's model on benchmark threads / a 16k context.
+            // EngineJob.withJob suspends on a cancellable mutex, so the restore has to run NonCancellable; a low-memory
+            // abort has already unloaded the model, in which case reconfigure throws "No model loaded" and is ignored.
+            if (threadsChanged || ctxChanged) withContext(NonCancellable) {
+                runCatching {
+                    if (threadsChanged) c.engine.setThreads(cfg.nThreads, cfg.bigCoresOnly, cfg.poll)
+                    if (ctxChanged) c.engine.reconfigure(cfg)
+                }
+            }
         }
-        c.engine.setThreads(cfg.nThreads, cfg.bigCoresOnly, cfg.poll)
-        for (kv in listOf(KvCacheType.F16, KvCacheType.Q8_0)) {
-            val big = cfg.copy(nCtx = 16_384, kvType = kv, flashAttention = true)
-            val ok = runCatching { c.engine.reconfigure(big) }.onFailure { _notice.value = "16k $kv skipped: ${it.message}" }.isSuccess
-            if (!ok) { i++; continue }
-            val r = bench(reps = 1, weight = 1f / total, base = i.toFloat() / total)
-            addRow("tg128 @ 16k $kv", big, r.ppTps, r.tgTps)
-            i++
-        }
-        c.engine.reconfigure(cfg)
     }
 
     fun stop() { job?.cancel() }
@@ -106,8 +127,8 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
 
     private fun start(block: suspend (ContextConfig) -> Unit) {
         if (_running.value) return
-        val cfg = c.engine.loaded?.context ?: run { _notice.value = "Load a model first"; return }
-        if (c.engine.state.value !is EngineState.Ready) { _notice.value = "Wait for the model to be ready"; return }
+        val cfg = c.engine.loaded?.context ?: run { _notice.value = S.loadModelFirst; return }
+        if (c.engine.state.value !is EngineState.Ready) { _notice.value = S.waitForModelReady; return }
         job = viewModelScope.launch {
             _running.value = true; _progress.value = 0f
             try {
@@ -116,7 +137,7 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _notice.value = e.message ?: "Benchmark failed"
+                _notice.value = e.message ?: S.benchmarkFailed
             } finally {
                 _running.value = false
             }

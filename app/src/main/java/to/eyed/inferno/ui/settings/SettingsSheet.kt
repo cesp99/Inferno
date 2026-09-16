@@ -129,7 +129,7 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
             CardDivider()
             val cpu = appVm.cpu
             val features = listOfNotNull("dotprod".takeIf { cpu.hasDotprod }, "fp16".takeIf { cpu.hasFp16 }, "i8mm".takeIf { cpu.hasI8mm })
-            SettingRow(S.computeRow, "CPU · ${cpu.socName} · ${cpu.nBig} big of ${cpu.nCores} cores · ${features.joinToString(", ")} · ${appVm.computeLine()}")
+            SettingRow(S.computeRow, S.cpuLine(cpu.socName, cpu.nBig, cpu.nCores, features.joinToString(", "), appVm.computeLine()))
         }
     }
 

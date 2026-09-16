@@ -15,13 +15,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.ChevronRight
@@ -103,12 +105,14 @@ fun DeveloperPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = 
         SectionHeader(S.engineSection)
         SettingsCard {
             val loaded = engine.loadedAny
-            engineRows(appVm, s, loaded, thermal, sustained, plan?.resolvedLabel).forEachIndexed { i, (label, value) ->
+            // engine.systemInfo() binds the JNI lazily (System.loadLibrary + the ggml CPU probe): never on the main thread.
+            val systemInfo by produceState<String?>(null) { value = withContext(Dispatchers.IO) { appVm.systemInfo() } }
+            engineRows(appVm, s, loaded, thermal, sustained, plan?.resolvedLabel, systemInfo).forEachIndexed { i, (label, value) ->
                 if (i > 0) CardDivider()
                 SettingRow(label) { Text(value, style = Numeric, color = Ink.I100, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth(0.62f)) }
             }
             CardDivider()
-            SystemInfoRow(appVm)
+            SystemInfoRow(systemInfo)
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -129,13 +133,13 @@ private val EngineState.loadedAny: LoadedModel?
     get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; is EngineState.Suspended -> loaded; else -> null }
 
 /** Label -> value rows of the Engine card; model-bound rows show "—" while nothing is loaded. */
-private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedModel?, thermal: Int, sustained: Boolean, ctxLabel: String?): List<Pair<String, String>> {
+private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedModel?, thermal: Int, sustained: Boolean, ctxLabel: String?, systemInfo: String?): List<Pair<String, String>> {
     val cpu = appVm.cpu
     val out = mutableListOf<Pair<String, String>>()
     out += S.llamaCppRow to "${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)}"
     out += S.sdCppRow to BuildConfig.SD_COMMIT.take(7)
     out += S.cpuRow to "${cpu.socName.ifBlank { "CPU" }} · ${cpu.nBig} big of ${cpu.nCores}"
-    out += S.cpuFeaturesRow to cpuFeatures(appVm.systemInfo())
+    out += S.cpuFeaturesRow to (systemInfo?.let(::cpuFeatures) ?: S.loading)
     val live = appVm.activeThreads()
     out += S.threadsRow to if (live > 0) "$live · ${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}" else "${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}"
     out += S.thermalRow to AppViewModel.thermalName(thermal)
@@ -159,19 +163,18 @@ internal fun cpuFeatures(info: String): String {
 
 private fun fmt1(v: Double): String = String.format(Locale.US, "%.1f", v)
 
-/** Expandable mono dump of `engine.systemInfo()`; the native call happens only on first expand. */
+/** Expandable mono dump of `engine.systemInfo()` (read on IO by the page; "Loading…" until it lands). */
 @Composable
-private fun SystemInfoRow(appVm: AppViewModel) {
+private fun SystemInfoRow(info: String?) {
     var open by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.animateContentSize(layoutSpec())) {
         SettingRow(S.fullSystemInfo, S.systemInfoDesc, onClick = { open = !open }) {
             Icon(if (open) Lucide.ChevronDown else Lucide.ChevronRight, null, Modifier.size(16.dp), tint = Ink.I500)
         }
         if (open) {
-            val info = remember { appVm.systemInfo() }
-            SelectionContainer {
-                Text(info.replace(" | ", "\n"), style = MonoBody, color = Ink.I300, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
-            }
+            val padding = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)
+            if (info == null) Text(S.loading, style = MonoBody, color = Ink.I500, modifier = padding)
+            else SelectionContainer { Text(info.replace(" | ", "\n"), style = MonoBody, color = Ink.I300, modifier = padding) }
         }
     }
 }

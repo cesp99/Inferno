@@ -52,7 +52,7 @@ fun ControlsPreview() = InfernoTheme {
             GhostIconButton(Lucide.X, S.close, onClick = {})
             GhostIconButton(Lucide.Settings, S.settings, onClick = {}, enabled = false)
             IconCircle(Lucide.Cpu)
-            ChipPill("Qwen3.5 2B", onClick = {}, icon = Lucide.Zap)
+            ChipPill("Qwen3.5 2B", icon = Lucide.Zap)
         }
         PrimaryButton(S.downloadAndStart, onClick = {}, modifier = Modifier.fillMaxWidth())
         PrimaryButton(S.apply, onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth())
@@ -144,7 +144,7 @@ fun NumericPreview() = InfernoTheme {
         Text("9.8 tok/s · 111 tokens · 1.1 s", style = Meta, color = Ink.I500)
         Text("1.2 GB of 1.9 GB · 12 MB/s", style = Numeric, color = Ink.I100)
         Text("0.9 GB of 1.9 GB · 11 MB/s", style = Numeric, color = Ink.I100)
-        Text("Where should we begin?", style = Typography.headlineSmall, color = Ink.White)
+        Text(S.emptyTitle, style = Typography.headlineSmall, color = Ink.White)
         Text(S.emptySubtitle, style = Typography.bodyLarge, color = Ink.I500)
     }
 }

@@ -226,8 +226,8 @@ private fun StorageFooter(s: StorageInfo) {
             Box(Modifier.fillMaxWidth(modelsFrac).fillMaxHeight().clip(CircleShape).background(Ink.White))
         }
         Spacer(Modifier.height(8.dp))
-        val partial = if (s.partialBytes > 0) " (${DownloadService.fmt(s.partialBytes)} partial)" else ""
-        Text("${DownloadService.fmt(s.modelsBytes)} models$partial · ${DownloadService.fmt(s.freeBytes)} free of ${DownloadService.fmt(s.totalBytes)}", style = Numeric, color = Ink.I500)
+        val partial = if (s.partialBytes > 0) DownloadService.fmt(s.partialBytes) else null
+        Text(S.storageLine(DownloadService.fmt(s.modelsBytes), partial, DownloadService.fmt(s.freeBytes), DownloadService.fmt(s.totalBytes)), style = Numeric, color = Ink.I500)
         Spacer(Modifier.height(6.dp))
         Text(S.q4Footer, style = Typography.bodySmall, color = Ink.I500)
         Spacer(Modifier.height(2.dp))

@@ -37,7 +37,9 @@ class MainActivity : ComponentActivity() {
         splash.setKeepOnScreenCondition { !container.prefsLoaded }
         enableEdgeToEdge()
         chatVm.bind(appVm)
-        appVm.enqueue(intent)
+        // Only a fresh launch carries a new share: after a process death the system re-delivers the original
+        // ACTION_SEND intent with the restored task, which must not re-import the image into a new chat.
+        if (savedInstanceState == null) appVm.enqueue(intent)
         // Sustained performance mode needs a Window; the governor only asks for it (PerfPreset.MAX while generating).
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
