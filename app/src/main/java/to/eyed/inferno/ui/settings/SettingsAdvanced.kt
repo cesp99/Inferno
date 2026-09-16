@@ -1,30 +1,21 @@
 package to.eyed.inferno.ui.settings
 
 import android.content.Intent
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.composables.icons.lucide.ChevronDown
-import com.composables.icons.lucide.ChevronRight
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.X
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +23,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.inferno.BuildConfig
 import to.eyed.inferno.data.KvCachePref
 import to.eyed.inferno.data.SettingsState
+import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.CardDivider
 import to.eyed.inferno.ui.components.ConfirmTwice
@@ -47,7 +39,6 @@ import to.eyed.inferno.ui.components.ToggleRow
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.MonoBody
 import to.eyed.inferno.ui.theme.Typography
-import to.eyed.inferno.ui.theme.layoutSpec
 import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.ChatViewModel
 import androidx.core.net.toUri
@@ -57,10 +48,10 @@ import androidx.core.net.toUri
 
 private val THREAD_OPTIONS = listOf(1, 2, 3, 4, 6, 8)
 private val POLL_OPTIONS = listOf(0, 50, 100)
-private val LOG_OPTIONS = listOf(3 to "Debug", 4 to "Info", 5 to "Warn")
 
+/** [developerRow] is the last row of the Advanced card (DeveloperPage.kt); the benchmark row and the log level moved behind it. */
 @Composable
-fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsState, onOpenBench: () -> Unit, onOpenLicences: () -> Unit) {
+fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsState, onOpenBench: () -> Unit, onOpenLicences: () -> Unit, developerRow: @Composable () -> Unit) {
     val context = LocalContext.current
     val quantizedKv = s.kvCache == KvCachePref.Q8_0 || s.kvCache == KvCachePref.Q4_0
 
@@ -84,14 +75,12 @@ fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsStat
         ControlRow(S.poll, description = S.pollDesc) {
             ConnectedGroup(POLL_OPTIONS.map { it.toString() }, POLL_OPTIONS.indexOf(s.poll), { appVm.setPoll(POLL_OPTIONS[it]) })
         }
-        CardDivider()
-        ControlRow(S.logLevel) {
-            ConnectedGroup(LOG_OPTIONS.map { it.second }, LOG_OPTIONS.indexOfFirst { it.first == s.minLogPriority }, { appVm.setMinLogPriority(LOG_OPTIONS[it].first) })
+        if (s.devBenchmark) {
+            CardDivider()
+            NavRow(S.runBenchmark, null, onClick = onOpenBench, description = S.runBenchmarkDesc)
         }
         CardDivider()
-        NavRow(S.runBenchmark, null, onClick = onOpenBench, description = S.runBenchmarkDesc)
-        CardDivider()
-        SystemInfoRow(appVm)
+        developerRow()
     }
 
     SectionHeader(S.about)
@@ -117,23 +106,6 @@ fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsStat
         "v${BuildConfig.VERSION_NAME} · llama.cpp ${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)} · sd.cpp ${BuildConfig.SD_COMMIT.take(7)}",
         style = Typography.bodySmall, color = Ink.I500, modifier = Modifier.padding(horizontal = 8.dp),
     )
-}
-
-/** Expandable mono dump of `engine.systemInfo()`; the native call happens only on first expand. */
-@Composable
-private fun SystemInfoRow(appVm: AppViewModel) {
-    var open by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.animateContentSize(layoutSpec())) {
-        SettingRow(S.systemInfo, S.systemInfoDesc, onClick = { open = !open }) {
-            Icon(if (open) Lucide.ChevronDown else Lucide.ChevronRight, null, Modifier.size(16.dp), tint = Ink.I500)
-        }
-        if (open) {
-            val info = remember { appVm.systemInfo() }
-            SelectionContainer {
-                Text(info.replace(" | ", "\n"), style = MonoBody, color = Ink.I300, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp))
-            }
-        }
-    }
 }
 
 /** THIRD-PARTY-NOTICES.md from assets, read on IO; the sheet is the wide (I850) variant with mono text. */

@@ -76,6 +76,12 @@ import java.util.Locale
 /** Readable ceiling for the conversation column on wide windows. */
 val ChatContentMaxWidth = 800.dp
 
+/**
+ * Which developer surfaces the list may draw (SettingsState.dev* readers, all false for a normal user): the
+ * meta line under the latest answer, the Details action, and the live token counter while streaming.
+ */
+data class ChatDevFlags(val generationStats: Boolean = false, val turnDetails: Boolean = false, val tokenCounter: Boolean = false)
+
 /** What the list shows for the latest turn while it is in flight. */
 private sealed interface Live {
     data object None : Live
@@ -111,8 +117,10 @@ fun SharedTransitionScope.MessagesList(
     modifier: Modifier = Modifier,
     /** Height of the composer overlaid on the list, so the last turn can always scroll clear of it. */
     bottomInset: Dp = 132.dp,
+    dev: ChatDevFlags = ChatDevFlags(),
 ) {
     val live = liveFor(messages, gen)
+    val liveMeta = (gen as? GenState.Streaming)?.takeIf { dev.tokenCounter && it.tokens > 0 }?.let { S.liveTokens(it.tokens, String.format(Locale.US, "%.1f", it.tokPerSec)) }
     val lastAssistantId = messages.lastOrNull { it.role == ChatRepository.ROLE_ASSISTANT }?.id
     BoxWithConstraints(modifier) {
         val sidePad = ((maxWidth - ChatContentMaxWidth) / 2).coerceAtLeast(0.dp) + 16.dp
@@ -132,7 +140,7 @@ fun SharedTransitionScope.MessagesList(
                     AssistantMessage(
                         text = gen.text, reasoning = gen.reasoning, thinkingMs = gen.thinkingMs, streaming = true,
                         stats = null, showActions = false, showRegenerate = false, announce = false,
-                        onRegenerate = {}, onDetails = {},
+                        onRegenerate = {}, onDetails = {}, liveMeta = liveMeta,
                     )
                 } else ThinkingIndicator(gen)
             }
@@ -157,6 +165,9 @@ fun SharedTransitionScope.MessagesList(
                             onRegenerate = onRegenerate,
                             onDetails = { onOpenTurnDetails(m) },
                             modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement),
+                            showDetails = dev.turnDetails,
+                            techMeta = dev.generationStats,
+                            liveMeta = if (streamingRow) liveMeta else null,
                         )
                     }
                 }
@@ -244,6 +255,10 @@ private fun AssistantMessage(
     onDetails: () -> Unit,
     modifier: Modifier = Modifier,
     showMeta: Boolean = false,
+    /** Developer mode: the Details action, the numbers in the meta line, and the live counter under the caret. */
+    showDetails: Boolean = false,
+    techMeta: Boolean = false,
+    liveMeta: String? = null,
 ) {
     val context = LocalContext.current
     val haptics = rememberHaptics()
@@ -253,7 +268,10 @@ private fun AssistantMessage(
             Spacer(Modifier.height(10.dp))
         }
         if (text.isNotBlank()) MarkdownBody(text)
-        if (streaming) BlinkingCaret(Modifier.padding(top = 6.dp))
+        if (streaming) Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            BlinkingCaret()
+            if (liveMeta != null) Text(liveMeta, style = Meta, color = Ink.I500)
+        }
         // TalkBack hears "Answer complete" exactly once, on the Done transition - never per token.
         if (announce) Box(Modifier.size(1.dp).semantics { liveRegion = LiveRegionMode.Polite; contentDescription = S.answerComplete })
         AnimatedVisibility(showActions, enter = fadeIn(defaultEffectsSpec()), exit = fadeOut(defaultEffectsSpec())) {
@@ -261,8 +279,8 @@ private fun AssistantMessage(
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     GhostIconButton(Lucide.Copy, S.copyMessage, onClick = { haptics.tap(); copyToClipboard(context, text, "Inferno message") }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
                     if (showRegenerate) GhostIconButton(Lucide.RefreshCw, S.regenerate, onClick = { haptics.tap(); onRegenerate() }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
-                    if (stats != null) GhostIconButton(Lucide.Info, S.details, onClick = { haptics.tap(); onDetails() }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
-                    if (showMeta && stats != null) metaLine(stats)?.let { meta ->
+                    if (stats != null && showDetails) GhostIconButton(Lucide.Info, S.details, onClick = { haptics.tap(); onDetails() }, size = 32.dp, iconSize = 15.dp, tint = Ink.I500)
+                    if (showMeta && stats != null) metaLine(stats, techMeta)?.let { meta ->
                         Spacer(Modifier.size(6.dp))
                         Text(meta, style = Meta, color = Ink.I500)
                     }
@@ -272,13 +290,20 @@ private fun AssistantMessage(
     }
 }
 
-/** "12.4 tok/s · 843 tokens · 8.1 s", plus "· stopped" / "· interrupted". Null when there is nothing to say. */
-internal fun metaLine(s: MessageStats): String? {
+/**
+ * Developer mode: "12.4 tok/s · 843 tokens · 8.1 s · prefill 120 ms · ctx 1,204/8,192 · image 2.1 s", plus
+ * "· stopped" / "· interrupted". A normal user ([tech] false) only gets the stopped / interrupted / failed word,
+ * so a clean answer has no line at all. Null when there is nothing to say.
+ */
+internal fun metaLine(s: MessageStats, tech: Boolean = true): String? {
     val parts = mutableListOf<String>()
-    if (s.generatedTokens > 0 && s.decodeMs > 0) {
+    if (tech && s.generatedTokens > 0 && s.decodeMs > 0) {
         parts += String.format(Locale.US, "%.1f tok/s", s.decodeTps)
         parts += "${String.format(Locale.US, "%,d", s.generatedTokens)} tokens"
         parts += formatDuration(s.decodeMs + s.prefillMs + s.imageEncodeMs)
+        if (s.prefillMs > 0) parts += "prefill ${String.format(Locale.US, "%,d", s.prefillMs)} ms"
+        if (s.nCtx > 0) parts += "ctx ${String.format(Locale.US, "%,d", s.kvUsedTokens)}/${String.format(Locale.US, "%,d", s.nCtx)}"
+        if (s.imageEncodeMs > 0) parts += "image ${formatDuration(s.imageEncodeMs)}"
     }
     when {
         s.finishReason == null -> parts += S.interrupted

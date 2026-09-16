@@ -25,6 +25,7 @@ import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.GlassButton
 import to.eyed.inferno.ui.components.MorphingMark
 import to.eyed.inferno.ui.theme.Ink
+import to.eyed.inferno.ui.theme.Meta
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.ui.theme.defaultEffectsSpec
 
@@ -41,6 +42,8 @@ fun EmptyState(
     onDescribePhoto: () -> Unit,
     onChooseModel: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Developer mode: "4 threads · pinned · thermal nominal · sustained off" under the chips; null for everyone else. */
+    computeLine: String? = null,
 ) {
     // Idle with a selected local model is still sendable (the VM reloads it), so only a truly empty engine asks.
     val idle = (engine is EngineState.Idle && !loadable) || engine is EngineState.Error
@@ -79,6 +82,10 @@ fun EmptyState(
                         SuggestionChip(S.suggestionDraft) { onSuggestion(S.promptDraft) }
                         if (canAttachImages) SuggestionChip(S.suggestionPhoto, onDescribePhoto)
                         else SuggestionChip(S.suggestionIdeas) { onSuggestion(S.promptIdeas) }
+                    }
+                    if (computeLine != null) {
+                        Spacer(Modifier.height(24.dp))
+                        Text(computeLine, style = Meta, color = Ink.I500, textAlign = TextAlign.Center)
                     }
                 }
             }

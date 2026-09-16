@@ -25,6 +25,9 @@ internal object Utf8 {
 internal interface NativeApi {
     fun backendInit(minLogPriority: Int, bigMask: Int)
     fun systemInfo(): String
+    /** Developer-mode extras with no-op defaults so the scripted test fake stays untouched. */
+    fun setLogPriority(minLogPriority: Int) {}
+    fun modelBufferTypes(): String = ""
     fun modelLoad(path: String, mmprojPath: String?, useMmap: Boolean, nThreadsMmproj: Int, imageMinTokens: Int, imageMaxTokens: Int, progress: ProgressCallback?): Long
     fun modelFree(model: Long)
     fun modelInfoNumbers(model: Long): LongArray
@@ -55,6 +58,8 @@ internal interface NativeApi {
 internal object LlamaNativeApi : NativeApi {
     override fun backendInit(minLogPriority: Int, bigMask: Int) = LlamaNative.backendInit(minLogPriority, bigMask)
     override fun systemInfo(): String = LlamaNative.systemInfo()
+    override fun setLogPriority(minLogPriority: Int) = LlamaNative.setLogPriority(minLogPriority)
+    override fun modelBufferTypes(): String = LlamaNative.modelBufferTypes()
     override fun modelLoad(path: String, mmprojPath: String?, useMmap: Boolean, nThreadsMmproj: Int, imageMinTokens: Int, imageMaxTokens: Int, progress: ProgressCallback?): Long =
         LlamaNative.modelLoad(path, mmprojPath, useMmap, nThreadsMmproj, imageMinTokens, imageMaxTokens, progress)
     override fun modelFree(model: Long) = LlamaNative.modelFree(model)

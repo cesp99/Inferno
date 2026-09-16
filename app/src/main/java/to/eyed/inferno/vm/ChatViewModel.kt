@@ -329,13 +329,12 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         }
     }
 
-    /** Accumulates the turn and publishes GenState at <= 12.5 Hz with a 2 Hz tok/s EMA. */
+    /** Accumulates the turn and publishes GenState at <= 12.5 Hz with a tok/s figure refreshed at 2 Hz. */
     private inner class Streamer(private val id: String) {
         val text = StringBuilder()
         val reasoning = StringBuilder()
         private val startNs = System.nanoTime()
         private var firstTokenNs = 0L
-        private var lastTokenNs = 0L
         private var thinkingEndNs = 0L
         private var tokens = 0
         private var tps = 0f
@@ -355,8 +354,11 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         private fun tick() {
             val now = System.nanoTime()
             if (firstTokenNs == 0L) firstTokenNs = now
-            else { val inst = 1e9f / (now - lastTokenNs).coerceAtLeast(1); tps = if (tps == 0f) inst else 0.8f * tps + 0.2f * inst }
-            lastTokenNs = now; tokens++
+            tokens++
+            // Running average since the first token, not a per-interval EMA: the channelFlow hands pieces over in
+            // bursts whenever the collector lags (Room writes, recomposition), which made an EMA read hundreds of tok/s.
+            val elapsed = now - firstTokenNs
+            if (tokens > 1 && elapsed > 0) tps = (tokens - 1) * 1e9f / elapsed
         }
         fun shouldPersist(): Boolean {
             val now = System.nanoTime()

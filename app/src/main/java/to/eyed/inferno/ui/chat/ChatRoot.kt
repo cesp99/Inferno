@@ -66,6 +66,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import to.eyed.inferno.data.ChatRepository
+import to.eyed.inferno.data.devBenchmark
+import to.eyed.inferno.data.devContextMeter
+import to.eyed.inferno.data.devGenerationStats
+import to.eyed.inferno.data.devThermalInfo
+import to.eyed.inferno.data.devTokenCounter
+import to.eyed.inferno.data.devTurnDetails
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.LoadedModel
 import to.eyed.inferno.ui.S
@@ -232,6 +238,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
             onRename = { renameId = it.id }, onPin = chatVm::pin, onArchive = chatVm::archive, onDelete = chatVm::delete,
             onOpenModels = { go(Screen.MODELS) }, onOpenSettings = { go(Screen.SETTINGS) }, onOpenBench = { go(Screen.BENCH) },
             onClose = if (expanded) null else closeNav,
+            showBenchmark = settings.devBenchmark,
         )
     }
 
@@ -261,6 +268,8 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                         showDrawerToggle = true, selectedModelName = if (idleLoadable) settings.selectedModelId?.let(appVm::modelDisplayName) else null,
                         onOpenDrawer = openNav, onOpenModelSheet = { modelSheet = true },
                         onNewChat = { haptics.tap(); chatVm.newChat(); draft = "" },
+                        showContextRing = settings.devContextMeter,
+                        computeLine = if (settings.devThermalInfo) appVm::computeLine else null,
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (messages.isEmpty() && (!gen.isBusy || gen is GenState.Queued)) {
@@ -269,6 +278,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 onSuggestion = { draft = it }, onDescribePhoto = pickPhotos,
                                 onChooseModel = { modelSheet = true },
                                 modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
+                                computeLine = if (settings.devThermalInfo) appVm.computeLine() else null,
                             )
                         } else {
                             MessagesList(
@@ -279,6 +289,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 modifier = Modifier.fillMaxSize(),
                                 // The composer starts with a 32 dp gradient; the last turn rests 8 dp into it, so it never fades yet still scrolls under.
                                 bottomInset = if (composerHeight == 0) 132.dp else with(LocalDensity.current) { composerHeight.toDp() } - 8.dp,
+                                dev = ChatDevFlags(generationStats = settings.devGenerationStats, turnDetails = settings.devTurnDetails, tokenCounter = settings.devTokenCounter),
                             )
                         }
                         Column(Modifier.align(Alignment.BottomCenter).widthIn(max = ChatContentMaxWidth), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -349,7 +360,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     if (modelSheet) ModelSheet(appVm, onDismiss = { modelSheet = false }, onOpenManager = { appVm.navigate(Screen.MODELS) })
     detailsId?.let { id ->
         val m = messages.firstOrNull { it.id == id }
-        val stats = m?.stats
+        val stats = m?.stats?.takeIf { settings.devTurnDetails }
         if (stats == null) detailsId = null
         else TurnDetailsSheet(stats, stats.modelId?.let(appVm::modelDisplayName), onDismiss = { detailsId = null })
     }

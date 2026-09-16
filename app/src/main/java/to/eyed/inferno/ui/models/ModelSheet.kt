@@ -25,6 +25,7 @@ import com.composables.icons.lucide.HardDrive
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.X
+import to.eyed.inferno.data.devModelTechSpecs
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.modelOrNull
 import to.eyed.inferno.ui.S
@@ -101,6 +102,7 @@ private fun MainPage(appVm: AppViewModel, onDismiss: () -> Unit, onOpenManager: 
                         loading = e.id == loadingId,
                         calibration = settings.calibration[e.id],
                         showMenu = false,
+                        techSpecs = settings.devModelTechSpecs,
                         actions = ModelActions(onLoad = { appVm.selectAndLoad(e.id); onDismiss() }, onDelete = { appVm.deleteModel(e.id) }),
                     )
                 }
