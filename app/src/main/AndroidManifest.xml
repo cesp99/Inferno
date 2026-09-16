@@ -22,22 +22,24 @@
         </intent>
     </queries>
 
-    <!-- allowBackup=false: chats and multi-GB models must never be auto-backed-up.
+    <!-- allowBackup=false: chats and multi-GB models must never be auto-backed-up. On API 31+ that flag only
+         covers cloud backup; device-to-device migration would still copy files/ (models, chat DB), so
+         dataExtractionRules excludes the whole root from both cloud backup and D2D transfer.
          supportsRtl=false: v1 strings are hard-coded English and Lucide has no auto-mirrored variants; model
          output in RTL scripts still renders correctly because Text defaults to TextDirection.Content.
          tools:ignore=MissingClass: InfernoApp (WP5), EngineService (WP2) and DownloadService (WP3) are
-         delivered by other work packages; the manifest is committed first so every package builds against it.
-         DataExtractionRules is ignored on purpose: with allowBackup=false there is nothing to configure. -->
+         delivered by other work packages; the manifest is committed first so every package builds against it. -->
     <application
         android:name=".InfernoApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="false"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Inferno.Starting"
-        tools:ignore="MissingClass,DataExtractionRules">
+        tools:ignore="MissingClass">
 
         <activity
             android:name=".MainActivity"

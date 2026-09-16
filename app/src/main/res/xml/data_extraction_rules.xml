@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chats (databases/), models, images and exports (files/) are private and multi-GB: never cloud-backed-up
+     and never copied by device-to-device migration. On API 31+ allowBackup=false only disables cloud backup;
+     the device-transfer section here is what keeps D2D setup from copying the whole files/ tree. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>
