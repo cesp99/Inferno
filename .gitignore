@@ -25,3 +25,6 @@ app/.cxx
 # Generated copy of the root notices file (Gradle task copyThirdPartyNotices)
 app/src/main/assets/THIRD-PARTY-NOTICES.md
 /tmp
+
+# Claude Code worktrees and session files
+.claude/
