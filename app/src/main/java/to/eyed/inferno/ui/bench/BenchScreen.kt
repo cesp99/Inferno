@@ -98,7 +98,7 @@ fun BenchScreen(benchVm: BenchViewModel, appVm: AppViewModel, onBack: () -> Unit
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(String.format(Locale.US, "%.1f", last.tgTps), style = Typography.headlineMedium, color = Ink.White)
                         Spacer(Modifier.width(8.dp))
-                        Text("${S.tokPerSec} ${S.generate}", style = Typography.bodyMedium, color = Ink.I500, modifier = Modifier.padding(bottom = 6.dp))
+                        Text("${S.tokPerSec} ${S.benchGenerate}", style = Typography.bodyMedium, color = Ink.I500, modifier = Modifier.padding(bottom = 6.dp))
                     }
                     Spacer(Modifier.height(2.dp))
                     Text("${String.format(Locale.US, "%.1f", last.ppTps)} ${S.tokPerSec} ${S.prompt} · ${last.label} · ${last.threads} ${S.thr} · ${last.kv.name}", style = Numeric, color = Ink.I500)

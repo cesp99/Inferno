@@ -52,6 +52,8 @@ import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.PrimaryButton
 import to.eyed.inferno.ui.components.SheetHeader
 import to.eyed.inferno.ui.bench.BenchScreen
+import to.eyed.inferno.ui.create.CreateScreen
+import to.eyed.inferno.ui.create.GalleryScreen
 import to.eyed.inferno.ui.models.ModelManagerScreen
 import to.eyed.inferno.ui.onboarding.FirstRunScreen
 import to.eyed.inferno.ui.onboarding.UnsupportedCpuScreen
@@ -191,8 +193,8 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
             Screen.MODELS -> ModelManagerScreen(appVm, onBeforeDownload = ensureNotifications)
             Screen.SETTINGS -> SettingsScreen(appVm, chatVm)
             Screen.BENCH -> BenchScreen(benchVm, appVm)
-            Screen.CREATE -> CreatePlaceholder(imageVm, appVm, chatVm, onBeforeDownload = ensureNotifications)
-            Screen.GALLERY -> GalleryPlaceholder(imageVm, appVm)
+            Screen.CREATE -> CreateScreen(imageVm, appVm, chatVm, onBeforeDownload = ensureNotifications)
+            Screen.GALLERY -> GalleryScreen(imageVm, appVm, chatVm)
         }
     }
 }
