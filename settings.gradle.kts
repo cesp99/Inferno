@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Inferno"
 include(":app")
+include(":sdengine")
  

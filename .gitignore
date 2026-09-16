@@ -17,3 +17,7 @@ local.properties
 # Native build intermediates and Kotlin compiler caches
 app/.cxx
 .kotlin
+
+# Model files are never committed
+*.gguf
+*.chunk*

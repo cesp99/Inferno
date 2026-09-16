@@ -1,0 +1,2 @@
+-keepclasseswithmembernames class * { native <methods>; }
+-keep class to.eyed.inferno.sd.SdNative { *; }
