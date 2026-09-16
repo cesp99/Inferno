@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import to.eyed.inferno.AppContainer
@@ -86,7 +87,13 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
     fun dismissNotice() { _notice.value = null }
-    fun notice(text: String) { _notice.value = text }
+    private var noticeJob: Job? = null
+    /** Shown top-centre until dismissed or [NOTICE_MS] pass: a stale "8 oldest messages did not fit" must not follow the user into the next chat. */
+    fun notice(text: String) {
+        _notice.value = text
+        noticeJob?.cancel()
+        noticeJob = viewModelScope.launch { delay(NOTICE_MS); if (_notice.value == text) _notice.value = null }
+    }
 
     private val _pending = MutableStateFlow<PendingAction?>(null)
     val pendingIntent: StateFlow<PendingAction?> = _pending.asStateFlow()
@@ -478,6 +485,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun modelDisplayName(modelId: String): String = c.models.displayName(modelId)
 
     companion object {
+        private const val NOTICE_MS = 8_000L
         private const val KEY_SCREEN = "screen"
         private val THERMAL_NAMES = listOf("nominal", "light", "moderate", "severe", "critical", "emergency", "shutdown")
         fun thermalName(status: Int): String = THERMAL_NAMES.getOrElse(status) { status.toString() }

@@ -172,6 +172,8 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     }
 
     // ---- send / stop ------------------------------------------------------------------------------------------
+    /** Auto-follow the tail of the list (see the list section below); a send always re-arms it. */
+    var follow by remember { mutableStateOf(true) }
     val send = {
         val text = draft.trim()
         if (text.isNotEmpty() || pending.isNotEmpty()) {
@@ -179,7 +181,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
             val accepted = !(gen.isBusy && gen !is GenState.Queued) && !imageBusy
             haptics.gestureEnd()
             chatVm.send(text)
-            if (accepted) draft = ""
+            if (accepted) { draft = ""; follow = true }
         }
     }
 
@@ -200,11 +202,16 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     var lastActive by rememberSaveable { mutableStateOf(activeId) }
     LaunchedEffect(activeId) { if (activeId != lastActive) { lastActive = activeId; listState.scrollToItem(0) } }
     val liveKey = when (val g = gen) { is GenState.Streaming -> if (g.text.isBlank()) "blank" else "text"; else -> g::class.simpleName }
-    // A new item at the bottom (send, first token) keeps the old anchor, so the reader who was within one
-    // item of the bottom is pulled back; a reader further up is never fought - the pill is for them.
-    LaunchedEffect(messages.size, liveKey) {
-        if (!listState.isScrollInProgress && listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0)
+    // Follow the tail while the reader is at the bottom; a reader who scrolled up is never fought - the pill is for
+    // them. The decision is taken when a scroll ends, not when items arrive: a send puts two items under the
+    // reader at once (their bubble and the live placeholder), which used to read as "two items up" and stranded
+    // them above their own message.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (!scrolling) follow = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < listState.layoutInfo.viewportSize.height / 2
+        }
     }
+    LaunchedEffect(messages.size, liveKey) { if (follow) listState.scrollToItem(0) }
     // The pill appears once the latest content is out of reach: the bottom item is fully hidden, or the reader
     // is more than half a screen up inside a long streaming answer (index 0 with a large offset).
     val showJump by remember {

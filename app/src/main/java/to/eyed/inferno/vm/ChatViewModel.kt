@@ -115,6 +115,11 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
     /** Chats whose next prompt did not fit under the STOP policy (cleared when the policy changes or the chat is left). */
     private val stopFull = MutableStateFlow<Set<String>>(emptySet())
+    init {
+        // A rebuilt window (new size, another model) invalidates every STOP block: the next send re-measures.
+        // Declared after stopFull: init blocks run in textual order and the collector fires synchronously.
+        viewModelScope.launch { c.engine.state.collect { if (it is EngineState.Loading) stopFull.value = emptySet() } }
+    }
     /**
      * STOP policy: the active chat has reached the model's memory limit (its next prompt did not fit, or usage passed
      * [ContextManager.STOP_FRACTION]); ChatRoot swaps the composer for the ContextFullPanel.
@@ -159,7 +164,28 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
     /** Clears the active chat; the row is created lazily on the first send so the sidebar never fills with empties. */
     fun newChat() { handle[KEY_ACTIVE] = null; _trimmedNotice.value = 0 }
-    fun open(id: String) { handle[KEY_ACTIVE] = id; _trimmedNotice.value = 0; stopFull.update { it - id } }
+    fun open(id: String) { handle[KEY_ACTIVE] = id; _trimmedNotice.value = 0; recheckStop(id) }
+
+    /**
+     * A chat blocked under STOP stays blocked when it is reopened (its unanswered question is still waiting for the
+     * panel's Carry over / Switch to rolling); the block is re-measured here because the set is in-memory only and
+     * the window may have been rebuilt meanwhile (see the Loading reset in init).
+     */
+    private fun recheckStop(id: String) {
+        viewModelScope.launch {
+            val settings = c.prefs.settings.value
+            val loaded = c.engine.state.value.loadedAny ?: return@launch
+            if (settings.contextPolicy != ContextPolicy.STOP) return@launch
+            val history = c.chats.messagesOnce(id)
+            if (history.lastOrNull()?.role != ChatRepository.ROLE_USER) return@launch
+            val view = MemoryView.of(history)
+            val system = ContextManager.systemWith(settings.systemPrompt.takeIf { it.isNotBlank() }, view.summary?.content)
+            val nCtx = loaded.context.nCtx
+            val reserve = c.contextManager.reserveFor(appVm.effectiveParams(), nCtx, settings.thinking && (loaded.model.catalog?.thinking?.hasTags == true))
+            val full = runCatching { c.contextManager.measure(system, view.prompt().map { it.copy(imageIds = emptyList()) }, emptyList()) + reserve > nCtx }.getOrDefault(false)
+            stopFull.update { if (full) it + id else it - id }
+        }
+    }
     fun rename(id: String, title: String) = viewModelScope.launch { c.chats.setTitle(id, title) }
     fun pin(id: String, pinned: Boolean) = viewModelScope.launch { c.chats.setPinned(id, pinned) }
     fun archive(id: String, archived: Boolean) = viewModelScope.launch { c.chats.setArchived(id, archived) }
