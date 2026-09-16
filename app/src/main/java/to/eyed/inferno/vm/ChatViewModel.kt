@@ -25,6 +25,7 @@ import to.eyed.inferno.AppContainer
 import to.eyed.inferno.data.Attachment
 import to.eyed.inferno.data.ChatMessage
 import to.eyed.inferno.data.ChatRepository
+import to.eyed.inferno.data.ContextPolicy
 import to.eyed.inferno.data.Conversation
 import to.eyed.inferno.data.MessageStats
 import to.eyed.inferno.engine.ContextManager
@@ -99,11 +100,24 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
     val contextUsage: StateFlow<ContextUsage> = combine(messages, c.engine.state) { msgs, state ->
         val nCtx = state.loadedAny?.context?.nCtx ?: 0
-        val last = msgs.lastOrNull { it.role == ChatRepository.ROLE_ASSISTANT && it.stats?.finishReason != null }
-        val exact = last?.takeIf { it.createdAt >= modelSwitchAt }?.stats?.kvUsedTokens?.takeIf { it > 0 }
+        val view = MemoryView.of(msgs)
+        // An assistant turn older than the latest summary measured the pre-compaction prompt: estimate instead.
+        val last = view.recent.lastOrNull { it.role == ChatRepository.ROLE_ASSISTANT && it.stats?.finishReason != null }
+        val exact = last?.takeIf { it.createdAt >= modelSwitchAt && (view.summary == null || it.createdAt >= view.summary.createdAt) }
+            ?.stats?.kvUsedTokens?.takeIf { it > 0 }
         if (exact != null) ContextUsage(exact, nCtx, approximate = false)
-        else ContextUsage(msgs.sumOf { it.content.length } / 4, nCtx, approximate = true)
+        else ContextUsage(((view.summary?.content?.length ?: 0) + view.recent.sumOf { it.content.length }) / 4, nCtx, approximate = true)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ContextUsage(0, 0, true))
+
+    /** Chats whose next prompt did not fit under the STOP policy (cleared when the policy changes or the chat is left). */
+    private val stopFull = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * STOP policy: the active chat has reached the model's memory limit (its next prompt did not fit, or usage passed
+     * [ContextManager.STOP_FRACTION]); ChatRoot swaps the composer for the ContextFullPanel.
+     */
+    val contextFull: StateFlow<Boolean> = combine(activeId, stopFull, contextUsage, c.prefs.settings) { id, full, usage, s ->
+        s.contextPolicy == ContextPolicy.STOP && ((id != null && id in full) || ContextManager.contextFull(usage.used, usage.nCtx))
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** True while an image generation owns the native job: the composer disables Send (12.5). */
     val imageBusy: StateFlow<Boolean> = c.imageGen.state.map { it is to.eyed.inferno.imagegen.ImageGenUiState.Loading || it is to.eyed.inferno.imagegen.ImageGenUiState.Generating }
@@ -125,7 +139,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
 
     /** Clears the active chat; the row is created lazily on the first send so the sidebar never fills with empties. */
     fun newChat() { handle[KEY_ACTIVE] = null; _trimmedNotice.value = 0 }
-    fun open(id: String) { handle[KEY_ACTIVE] = id; _trimmedNotice.value = 0 }
+    fun open(id: String) { handle[KEY_ACTIVE] = id; _trimmedNotice.value = 0; stopFull.update { it - id } }
     fun rename(id: String, title: String) = viewModelScope.launch { c.chats.setTitle(id, title) }
     fun pin(id: String, pinned: Boolean) = viewModelScope.launch { c.chats.setPinned(id, pinned) }
     fun archive(id: String, archived: Boolean) = viewModelScope.launch { c.chats.setArchived(id, archived) }
@@ -252,32 +266,67 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         setGen(conversationId, GenState.Prefill(0, 0, false))
         var assistantId: String? = null
         try {
-            val history = c.chats.messagesOnce(conversationId)
+            var history = c.chats.messagesOnce(conversationId)
             val conv = conversations.value.firstOrNull { it.id == conversationId }
-            // (1) prompt from the persisted history: assistant turns are content only, never their reasoning.
-            val prompt = history.map { m ->
-                if (m.role == ChatRepository.ROLE_USER) PromptMessage("user", ContextManager.sanitize(m.content), m.images.map { it.id })
-                else PromptMessage("assistant", m.content)
-            }
-            // (2) real RGB for every image still in the prompt (capped at 8, newest kept); the engine skips re-encoding on an id hit.
-            val attachments = history.flatMap { it.images }.distinctBy { it.id }.takeLast(MAX_PROMPT_IMAGES)
-            val keep = attachments.map { it.id }.toSet()
-            val images: List<PromptImage> = if (loaded.visionAllowed && loaded.hasVision) attachments.map { c.images.toPromptImage(it, model, detail) } else emptyList()
-            val messages0 = prompt.map { it.copy(imageIds = it.imageIds.filter { id -> id in keep && images.any { img -> img.id == id } }) }
-            val system = settings.systemPrompt.takeIf { it.isNotBlank() }
             val nCtx = loaded.context.nCtx
-            // (3) message-level truncation with hysteresis (state Trimming only when something is actually dropped).
-            val (messages, promptImages) = if (settings.autoTrim) {
-                val fit = c.contextManager.fit(system, messages0, images, nCtx, c.contextManager.reserveFor(params, nCtx, thinkingOn), conv?.trimmedBefore ?: 0)
-                if (fit.trimmedThisTurn) {
-                    setGen(conversationId, GenState.Trimming)
-                    c.chats.setTrimmedBefore(conversationId, fit.trimmedBefore)
-                    _trimmedNotice.value = fit.droppedCount + fit.droppedImages
-                } else _trimmedNotice.value = 0
-                fit.messages to fit.images
-            } else {
-                _trimmedNotice.value = 0
-                (if (system == null) messages0 else listOf(PromptMessage("system", system)) + messages0) to images
+            val reserve = c.contextManager.reserveFor(params, nCtx, thinkingOn)
+            val systemPrompt = settings.systemPrompt.takeIf { it.isNotBlank() }
+            // (1) the chat's memory: the latest summary becomes part of the system text, the turns after it the prompt
+            //     (assistant turns are content only, never their reasoning). Real RGB for every image still in the
+            //     prompt (capped at 8, newest kept); the engine skips re-encoding on an id hit.
+            var view = MemoryView.of(history)
+            suspend fun parts(): Triple<String?, List<PromptMessage>, List<PromptImage>> {
+                val attachments = view.recent.flatMap { it.images }.distinctBy { it.id }.takeLast(MAX_PROMPT_IMAGES)
+                val images: List<PromptImage> = if (loaded.visionAllowed && loaded.hasVision) attachments.map { c.images.toPromptImage(it, model, detail) } else emptyList()
+                val keep = images.map { it.id }.toSet()
+                val messages0 = view.prompt().map { it.copy(imageIds = it.imageIds.filter { id -> id in keep }) }
+                return Triple(ContextManager.systemWith(systemPrompt, view.summary?.content), messages0, images)
+            }
+            var (system, messages0, images) = parts()
+            // (2) the context policy decides what the model sees when the window is tight.
+            val messages: List<PromptMessage>
+            val promptImages: List<PromptImage>
+            _trimmedNotice.value = 0
+            when (settings.contextPolicy) {
+                ContextPolicy.ROLLING -> {
+                    // Message-level truncation with hysteresis (state Trimming only when something is actually dropped).
+                    // trimmedBefore is persisted as an orderIndex; fit() works on list positions.
+                    val startIdx = view.recent.indexOfFirst { it.orderIndex >= (conv?.trimmedBefore ?: 0) }.coerceAtLeast(0)
+                    val fit = c.contextManager.fit(system, messages0, images, nCtx, reserve, startIdx)
+                    if (fit.trimmedThisTurn) {
+                        setGen(conversationId, GenState.Trimming)
+                        c.chats.setTrimmedBefore(conversationId, view.recent.getOrNull(fit.trimmedBefore)?.orderIndex ?: 0)
+                        _trimmedNotice.value = fit.droppedCount + fit.droppedImages
+                    }
+                    messages = fit.messages; promptImages = fit.images
+                }
+                ContextPolicy.COMPACT -> {
+                    // Crossing the trim target means: summarize the older turns first, then answer from the summary.
+                    if (c.contextManager.needsCompaction(c.contextManager.measure(system, messages0, images), reserve, nCtx)) {
+                        setGen(conversationId, GenState.Compacting)
+                        val result = compactor(loaded, params, detail).compact(conversationId, systemPrompt, nCtx, reserve)
+                        if (result != null) {
+                            if (result.droppedMaterial > 0) appVmRef?.notice("${result.droppedMaterial} oldest messages did not fit the summary")
+                            history = c.chats.messagesOnce(conversationId)
+                            view = MemoryView.of(history)
+                            parts().let { (sys, m0, im) -> system = sys; messages0 = m0; images = im }
+                        }
+                        setGen(conversationId, GenState.Prefill(0, 0, false))
+                    }
+                    // Safety net for a single turn larger than the window: roll without persisting a window start.
+                    val fit = c.contextManager.fit(system, messages0, images, nCtx, reserve, 0)
+                    if (fit.trimmedThisTurn) _trimmedNotice.value = fit.droppedCount + fit.droppedImages
+                    messages = fit.messages; promptImages = fit.images
+                }
+                ContextPolicy.STOP -> {
+                    // Nothing is dropped, ever: a prompt that does not fit blocks the composer instead of failing the turn.
+                    if (c.contextManager.measure(system, messages0, images) + reserve > nCtx) {
+                        stopFull.update { it + conversationId }
+                        setGen(conversationId, GenState.Idle)
+                        return
+                    }
+                    messages = (if (system == null) messages0 else listOf(PromptMessage("system", system)) + messages0); promptImages = images
+                }
             }
             val expectedEncodeMs = if (promptImages.isEmpty()) 0L else expectedEncodeMs(settings.calibration[model.id]?.imageEncode?.get(detail.name), catalog?.encodeMsAt448, detail, promptImages)
             appVm.beginFirstTurn()
@@ -304,7 +353,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         stream.close()
                         setGen(conversationId, GenState.Idle)
                     }
-                    GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error("Conversation is longer than the context window. Enable auto-trim or start a new chat.")) }
+                    GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error("This message alone exceeds the model's memory. Shorten it or start a new chat.")) }
                     is GenerationEvent.Error -> {
                         assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
                         stream.close()
@@ -326,6 +375,91 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             stream.close()
             assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
             setGen(conversationId, GenState.Error(e.message ?: "Generation failed"))
+        }
+    }
+
+    // ---- context policy actions --------------------------------------------------------------------------------
+
+    private fun compactor(loaded: LoadedModel, params: GenerationParams, detail: ImageDetail) = Compactor(
+        c.contextManager,
+        EngineCompaction(c.engine, loaded.model.catalog?.thinking ?: ThinkingSpec(), params, detail),
+        object : CompactionStore {
+            override suspend fun messages(conversationId: String) = c.chats.messagesOnce(conversationId)
+            override suspend fun appendSummary(conversationId: String, text: String, compactedThrough: Int, compactedCount: Int) =
+                c.chats.appendSummary(conversationId, text, compactedThrough, compactedCount)
+            override suspend fun setTrimmedBefore(conversationId: String, orderIndex: Int) = c.chats.setTrimmedBefore(conversationId, orderIndex)
+        },
+    )
+
+    /** Manual compaction from the context panel: summarizes everything but the last turns, under any policy. */
+    fun compactNow() {
+        if (!canStart()) return
+        val id = activeId.value ?: return
+        genJob = viewModelScope.launch {
+            val r = runCompaction(id, keepTurns = ContextManager.COMPACT_KEEP_TURNS)
+            if (r is CompactOutcome.Nothing) appVmRef?.notice("Nothing to compact yet")
+        }
+    }
+
+    /**
+     * STOP panel: one compaction of the whole chat, then a new chat seeded with the summary. An unanswered trailing
+     * question is copied over and answered there, so the user does not retype what they were about to ask.
+     */
+    fun carryOverSummary() {
+        if (!canStart()) return
+        val id = activeId.value ?: return
+        genJob = viewModelScope.launch {
+            val outcome = runCompaction(id, keepTurns = 0)
+            if (outcome is CompactOutcome.Nothing) appVmRef?.notice("Nothing to carry over")
+            val summary = (outcome as? CompactOutcome.Done)?.result?.summary ?: return@launch
+            val pending = c.chats.messagesOnce(id).lastOrNull()?.takeIf { it.role == ChatRepository.ROLE_USER && it.orderIndex > summary.compactedThrough }
+            val title = conversations.value.firstOrNull { it.id == id }?.displayTitle ?: "Chat"
+            val fresh = c.chats.create(c.engine.state.value.modelOrNull?.id)
+            c.chats.setTitle(fresh.id, "Continued · $title")
+            c.chats.appendSummary(fresh.id, summary.content, compactedThrough = -1, compactedCount = summary.compactedCount)
+            stopFull.update { it - id }
+            handle[KEY_ACTIVE] = fresh.id
+            if (pending != null) { c.chats.appendUser(fresh.id, pending.content, pending.images); run(fresh.id) }
+        }
+    }
+
+    /** STOP panel: flip the policy and answer the question that was waiting, if any. */
+    fun switchToRolling() {
+        val id = activeId.value
+        viewModelScope.launch {
+            c.prefs.setContextPolicy(ContextPolicy.ROLLING)
+            if (id == null) return@launch
+            stopFull.update { it - id }
+            if (canStart() && c.chats.messagesOnce(id).lastOrNull()?.role == ChatRepository.ROLE_USER) genJob = viewModelScope.launch { run(id) }
+        }
+    }
+
+    private sealed interface CompactOutcome {
+        data class Done(val result: Compactor.Result) : CompactOutcome
+        data object Nothing : CompactOutcome
+        data object Failed : CompactOutcome
+    }
+
+    /** Shared by compactNow / carryOverSummary: Compacting state, one compaction, back to Idle (Error on failure). */
+    private suspend fun runCompaction(id: String, keepTurns: Int): CompactOutcome {
+        val settings = c.prefs.settings.value
+        val loaded = c.engine.state.value.loadedAny ?: run { setGen(id, GenState.Error("Choose a model first")); return CompactOutcome.Failed }
+        val params = appVm.effectiveParams()
+        val thinkingOn = settings.thinking && (loaded.model.catalog?.thinking?.hasTags == true)
+        val nCtx = loaded.context.nCtx
+        setGen(id, GenState.Compacting)
+        return try {
+            val r = compactor(loaded, params, settings.imageDetail).compact(id, settings.systemPrompt.takeIf { it.isNotBlank() }, nCtx,
+                c.contextManager.reserveFor(params, nCtx, thinkingOn), keepTurns)
+            if (r != null && r.droppedMaterial > 0) appVmRef?.notice("${r.droppedMaterial} oldest messages did not fit the summary")
+            setGen(id, GenState.Idle)
+            if (r == null) CompactOutcome.Nothing else CompactOutcome.Done(r)
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { setGen(id, GenState.Idle) }
+            throw e
+        } catch (e: Exception) {
+            setGen(id, GenState.Error(e.message ?: "Compaction failed"))
+            CompactOutcome.Failed
         }
     }
 

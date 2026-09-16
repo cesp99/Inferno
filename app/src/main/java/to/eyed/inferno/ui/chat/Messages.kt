@@ -4,8 +4,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,15 +28,18 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -40,14 +47,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Copy
 import com.composables.icons.lucide.Info
 import com.composables.icons.lucide.Lucide
+import com.composables.icons.lucide.NotebookPen
 import com.composables.icons.lucide.Pencil
 import com.composables.icons.lucide.RefreshCw
 import to.eyed.inferno.data.Attachment
@@ -61,6 +71,7 @@ import to.eyed.inferno.ui.components.Hairline
 import to.eyed.inferno.ui.components.MenuActionRow
 import to.eyed.inferno.ui.components.copyToClipboard
 import to.eyed.inferno.ui.components.surfaceHigh
+import to.eyed.inferno.ui.components.surfaceLow
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Meta
 import to.eyed.inferno.ui.theme.Radii
@@ -68,6 +79,7 @@ import to.eyed.inferno.ui.theme.RowMeta
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.ui.theme.defaultEffectsSpec
 import to.eyed.inferno.ui.theme.defaultSpatialSpec
+import to.eyed.inferno.ui.theme.fastSpatialSpec
 import to.eyed.inferno.ui.theme.rememberHaptics
 import to.eyed.inferno.vm.GenState
 import to.eyed.inferno.vm.isBusy
@@ -136,8 +148,14 @@ fun SharedTransitionScope.MessagesList(
                     )
                 } else ThinkingIndicator(gen)
             }
-            for (i in messages.indices.reversed()) {
-                val m = messages[i]
+            // Summary rows are appended after the turns they cover; they are drawn at their compaction point instead
+            // (right below the last covered message), carried-over ones at the very top.
+            val summaries = messages.filter { it.isSummary }
+            val turns = messages.filter { !it.isSummary }
+            val anchored = summaries.groupBy { it.compactedThrough }
+            for (i in turns.indices.reversed()) {
+                val m = turns[i]
+                anchored[m.orderIndex]?.forEach { sm -> item(key = sm.id, contentType = "summary") { SummaryCard(sm, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement)) } }
                 item(key = m.id, contentType = m.role) {
                     if (m.role == ChatRepository.ROLE_USER) {
                         UserBubble(m, bubbleMax, imageScope, onOpenImage, onEdit, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement))
@@ -162,6 +180,45 @@ fun SharedTransitionScope.MessagesList(
                 }
                 if (trimmedBefore > 0 && m.orderIndex == trimmedBefore) item(key = "trimmed", contentType = "trimmed") { TrimmedDivider() }
             }
+            val turnIndexes = turns.map { it.orderIndex }.toSet()
+            summaries.filter { it.compactedThrough !in turnIndexes }.forEach { sm ->
+                item(key = sm.id, contentType = "summary") { SummaryCard(sm, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement)) }
+            }
+        }
+    }
+}
+
+/**
+ * Collapsed "Summary of earlier messages" card at a compaction point (ContextPolicy.COMPACT): the model's own notes
+ * on everything above it. Tap to read; "Compacted N messages" says how much history it stands for.
+ */
+@Composable
+private fun SummaryCard(msg: ChatMessage, modifier: Modifier = Modifier) {
+    var expanded by rememberSaveable(msg.id) { mutableStateOf(false) }
+    val haptics = rememberHaptics()
+    val rotation by animateFloatAsState(if (expanded) 180f else 0f, fastSpatialSpec(), label = "summaryChevron")
+    val subtitle = if (msg.compactedThrough < 0) S.carriedOverSummary else S.compactedMessages(msg.compactedCount)
+    Column(
+        modifier
+            .fillMaxWidth()
+            .surfaceLow(RoundedCornerShape(Radii.row))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, role = Role.Button) { haptics.tap(); expanded = !expanded }
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Lucide.NotebookPen, null, Modifier.size(16.dp), tint = Ink.I300)
+            Column(Modifier.weight(1f)) {
+                Text(S.summaryOfEarlier, style = Typography.bodyMedium.copy(fontWeight = FontWeight.Medium), color = Ink.I100)
+                Text(subtitle, style = RowMeta, color = Ink.I500)
+            }
+            Icon(Lucide.ChevronDown, null, Modifier.size(16.dp).graphicsLayer { rotationZ = rotation }, tint = Ink.I500)
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(defaultSpatialSpec()) + fadeIn(defaultEffectsSpec()),
+            exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(defaultEffectsSpec()),
+        ) {
+            Box(Modifier.padding(top = 10.dp)) { MarkdownBody(msg.content) }
         }
     }
 }

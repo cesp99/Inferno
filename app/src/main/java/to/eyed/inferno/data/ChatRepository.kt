@@ -11,7 +11,11 @@ import java.util.UUID
 
 data class Attachment(val id: String, val path: String, val thumbPath: String, val width: Int, val height: Int)
 data class ChatMessage(val id: String, val role: String, val content: String, val thinking: String?, val createdAt: Long,
-    val images: List<Attachment>, val stats: MessageStats?, val orderIndex: Int)
+    val images: List<Attachment>, val stats: MessageStats?, val orderIndex: Int,
+    /** Summary rows only (ContextPolicy.COMPACT): orderIndex of the last message covered (-1 = carried over) and the cumulative count. */
+    val compactedThrough: Int = -1, val compactedCount: Int = 0) {
+    val isSummary get() = role == ChatRepository.ROLE_SUMMARY
+}
 /** Everything the TurnDetailsSheet shows, persisted per assistant message (no LoadedModel dependency, so old turns and reopened chats have full details). Rows with 0 / null are hidden. */
 data class MessageStats(
     val promptTokens: Int, val reusedTokens: Int = 0, val generatedTokens: Int, val prefillMs: Long, val decodeMs: Long,
@@ -73,6 +77,22 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
         return MessageWithImages(m, emptyList()).toChatMessage()
     }
 
+    /**
+     * Compaction result (ContextPolicy.COMPACT): appended at the end like any message, but the UI draws it right after
+     * orderIndex [compactedThrough] and the prompt builder replaces everything up to there with it. [compactedThrough]
+     * -1 seeds a fresh chat with a summary carried over from another one.
+     */
+    suspend fun appendSummary(conversationId: String, text: String, compactedThrough: Int, compactedCount: Int): ChatMessage {
+        val now = System.currentTimeMillis()
+        val m = MessageEntity(
+            id = UUID.randomUUID().toString(), conversationId = conversationId, orderIndex = dao.maxOrderIndex(conversationId) + 1,
+            role = ROLE_SUMMARY, content = text, createdAt = now, compactedThrough = compactedThrough, compactedCount = compactedCount,
+        )
+        dao.insertMessage(m, emptyList())
+        dao.touch(conversationId, now)
+        return MessageWithImages(m, emptyList()).toChatMessage()
+    }
+
     /** Periodic + final write; the final write sets stats.finishReason. A null [stats] keeps the stored numbers. */
     suspend fun updateAssistant(messageId: String, text: String, thinking: String?, stats: MessageStats?) {
         val cur = dao.messageById(messageId)?.message ?: return
@@ -125,7 +145,7 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
             templateName = m.templateName, templateSupported = m.templateSupported, finishReason = m.finishReason, modelId = m.modelId,
         ) else null
         val atts = images.sortedBy { it.orderIndex }.map { imageUtil.attachment(it.imageId, it.width, it.height) }
-        return ChatMessage(m.id, m.role, m.content, m.thinking, m.createdAt, atts, stats, m.orderIndex)
+        return ChatMessage(m.id, m.role, m.content, m.thinking, m.createdAt, atts, stats, m.orderIndex, m.compactedThrough, m.compactedCount)
     }
 
     private fun MessageEntity.withStats(s: MessageStats) = copy(
@@ -137,6 +157,8 @@ class ChatRepository(private val dao: ChatDao, private val imageUtil: ImageUtil)
     companion object {
         const val ROLE_USER = "user"
         const val ROLE_ASSISTANT = "assistant"
+        /** Model-written summary of earlier turns (ContextPolicy.COMPACT); never sent as a chat turn, folded into the system note. */
+        const val ROLE_SUMMARY = "summary"
         const val TITLE_MAX = 48
 
         /** Title rule (5.4): first non-blank line of the first user message, trimmed to 48 chars + "…". */

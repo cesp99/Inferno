@@ -47,6 +47,7 @@ import com.composables.icons.lucide.ChevronDown
 import com.composables.icons.lucide.Lucide
 import kotlinx.coroutines.delay
 import to.eyed.inferno.ui.S
+import to.eyed.inferno.ui.components.MorphingMark
 import to.eyed.inferno.ui.components.QuietNotice
 import to.eyed.inferno.ui.components.surfaceLow
 import to.eyed.inferno.ui.theme.Ink
@@ -157,7 +158,20 @@ fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier) {
             }
         }
         GenState.Trimming -> QuietNotice(S.trimmingOlder, modifier)
+        GenState.Compacting -> CompactingIndicator(modifier)
         else -> Unit
+    }
+}
+
+/** The breathing mark next to "Compacting…": the model is writing its own notes, not an answer (ContextPolicy.COMPACT). */
+@Composable
+fun CompactingIndicator(modifier: Modifier = Modifier) {
+    Row(modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        MorphingMark(28.dp, active = true)
+        Column {
+            Text(S.compacting, style = Typography.bodyMedium.copy(fontWeight = FontWeight.Medium), color = Ink.I100)
+            Text(S.compactingDesc, style = Typography.bodySmall, color = Ink.I500)
+        }
     }
 }
 

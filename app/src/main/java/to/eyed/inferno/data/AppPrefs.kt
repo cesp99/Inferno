@@ -31,6 +31,12 @@ import to.eyed.inferno.models.ImageDetail
 import java.io.IOException
 
 enum class KvCachePref { AUTO, F16, Q8_0, Q4_0 }
+/**
+ * What happens when a chat outgrows the model's context (Settings > Chat). ROLLING drops the oldest turns from the
+ * prompt (the history stays), COMPACT asks the model to summarize the older turns before the next one, STOP blocks the
+ * composer until the user opens a new chat. Absorbs the old `autoTrim` boolean (false -> STOP, true -> ROLLING).
+ */
+enum class ContextPolicy { ROLLING, COMPACT, STOP }
 /** Presets shown in Settings > Inference > Performance; Advanced exposes the underlying knobs. */
 enum class PerfPreset(val label: String, val threads: Int, val pin: Boolean, val poll: Int, val sustained: Boolean) {
     AUTO("Auto", 4, true, 50, false), MAX("Max", 4, true, 100, true), COOL("Cool", 3, true, 0, false)
@@ -54,7 +60,6 @@ data class SettingsState(
     val thinking: Boolean = false,
     val imageDetail: ImageDetail = ImageDetail.BALANCED,
     // chat
-    val autoTrim: Boolean = true,               // message-level truncation when prompt does not fit
     val streamingAnimations: Boolean = true,
     val haptics: Boolean = true,
     // downloads
@@ -74,6 +79,8 @@ data class SettingsState(
     val selectedImageModelId: String? = null,
     /** Learned seconds per denoise step keyed EtaModel.key(modelId, px) = "<imageModelId>:<px>"; the EtaStore view of this map feeds ImageGenRepository's ETA. */
     val imageGenSecPerStep: Map<String, Float> = emptyMap(),
+    // ---- Context policy (infinite chats): replaces `autoTrim`; the old key is still read for the migration ----
+    val contextPolicy: ContextPolicy = ContextPolicy.ROLLING,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore("settings")
@@ -120,7 +127,6 @@ class AppPrefs(
     suspend fun setSystemPrompt(s: String) = update { it.copy(systemPrompt = s) }
     suspend fun setThinking(v: Boolean) = update { it.copy(thinking = v) }
     suspend fun setImageDetail(d: ImageDetail) = update { it.copy(imageDetail = d) }
-    suspend fun setAutoTrim(v: Boolean) = update { it.copy(autoTrim = v) }
     suspend fun setStreamingAnimations(v: Boolean) = update { it.copy(streamingAnimations = v) }
     suspend fun setHaptics(v: Boolean) = update { it.copy(haptics = v) }
     override suspend fun setAllowMeteredDownloads(allow: Boolean) = update { it.copy(allowMeteredDownloads = allow) }
@@ -133,6 +139,8 @@ class AppPrefs(
     suspend fun setCalibration(modelId: String, c: Calibration) = update { it.copy(calibration = it.calibration + (modelId to c)) }
     suspend fun setSelectedImageModel(id: String?) = update { it.copy(selectedImageModelId = id) }
     suspend fun setImageGenSecPerStep(key: String, secPerStep: Float) = update { it.copy(imageGenSecPerStep = it.imageGenSecPerStep + (key to secPerStep)) }
+    // ---- Context policy ----
+    suspend fun setContextPolicy(p: ContextPolicy) = update { it.copy(contextPolicy = p) }
 
     // ---- DownloadPrefs (models/ModelRepository.kt): snapshot reads of the hot state ----
     override val allowMeteredDownloads: Boolean get() = settings.value.allowMeteredDownloads
@@ -172,6 +180,8 @@ class AppPrefs(
         val calibration = stringPreferencesKey("calibration")
         val selectedImageModelId = stringPreferencesKey("selectedImageModelId")
         val imageGenSecPerStep = stringPreferencesKey("imageGenSecPerStep")
+        // ---- Context policy ----
+        val contextPolicy = stringPreferencesKey("contextPolicy")
     }
 
     private fun Preferences.toState(): SettingsState {
@@ -191,7 +201,6 @@ class AppPrefs(
             systemPrompt = this[K.systemPrompt] ?: d.systemPrompt,
             thinking = this[K.thinking] ?: d.thinking,
             imageDetail = enum(this[K.imageDetail], d.imageDetail),
-            autoTrim = this[K.autoTrim] ?: d.autoTrim,
             streamingAnimations = this[K.streamingAnimations] ?: d.streamingAnimations,
             haptics = this[K.haptics] ?: d.haptics,
             allowMeteredDownloads = this[K.allowMeteredDownloads] ?: d.allowMeteredDownloads,
@@ -204,6 +213,9 @@ class AppPrefs(
             calibration = decode(this[K.calibration], d.calibration),
             selectedImageModelId = this[K.selectedImageModelId],
             imageGenSecPerStep = decode(this[K.imageGenSecPerStep], d.imageGenSecPerStep),
+            // Installs that only ever stored the old boolean: autoTrim=false meant "fail when full" (STOP), true meant trimming (ROLLING).
+            contextPolicy = enumOrNull<ContextPolicy>(this[K.contextPolicy])
+                ?: (if (this[K.autoTrim] == false) ContextPolicy.STOP else d.contextPolicy),
         )
     }
 
@@ -222,7 +234,6 @@ class AppPrefs(
         this[K.systemPrompt] = s.systemPrompt
         this[K.thinking] = s.thinking
         this[K.imageDetail] = s.imageDetail.name
-        this[K.autoTrim] = s.autoTrim
         this[K.streamingAnimations] = s.streamingAnimations
         this[K.haptics] = s.haptics
         this[K.allowMeteredDownloads] = s.allowMeteredDownloads
@@ -235,14 +246,16 @@ class AppPrefs(
         this[K.calibration] = json.encodeToString(s.calibration)
         setOrRemove(K.selectedImageModelId, s.selectedImageModelId)
         this[K.imageGenSecPerStep] = json.encodeToString(s.imageGenSecPerStep)
+        this[K.contextPolicy] = s.contextPolicy.name
+        this[K.autoTrim] = s.contextPolicy != ContextPolicy.STOP      // kept in sync so a downgrade still reads something sensible
     }
 
     private fun MutablePreferences.setOrRemove(key: Preferences.Key<String>, value: String?) {
         if (value == null) remove(key) else this[key] = value
     }
 
-    private inline fun <reified E : Enum<E>> enum(name: String?, default: E): E =
-        name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
+    private inline fun <reified E : Enum<E>> enum(name: String?, default: E): E = enumOrNull<E>(name) ?: default
+    private inline fun <reified E : Enum<E>> enumOrNull(name: String?): E? = name?.let { n -> enumValues<E>().firstOrNull { it.name == n } }
 
     private inline fun <reified T> decode(text: String?, default: T): T =
         if (text.isNullOrEmpty()) default else runCatching { json.decodeFromString<T>(text) }.getOrDefault(default)

@@ -111,6 +111,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     val conversations by chatVm.conversations.collectAsStateWithLifecycle()
     val activeId by chatVm.activeId.collectAsStateWithLifecycle()
     val busyIds by chatVm.busyIds.collectAsStateWithLifecycle()
+    val contextFull by chatVm.contextFull.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -143,7 +144,9 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
         else -> null
     }
     val trimmedBefore = conversations.firstOrNull { it.id == activeId }?.trimmedBefore ?: 0
-    val contextLimit = !settings.autoTrim && usage.nCtx > 0 && usage.used >= 0.92f * usage.nCtx && !gen.isBusy
+    // STOP policy: the ViewModel knows when the next prompt no longer fits; the panel waits for the current turn to end.
+    val contextLimit = contextFull && !gen.isBusy
+    val canCompact = activeId != null && messages.any { !it.isSummary } && !gen.isBusy && loaded != null && engine !is EngineState.Loading
 
     // ---- launchers -------------------------------------------------------------------------------------------
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { uris ->
@@ -261,6 +264,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                         showDrawerToggle = true, selectedModelName = if (idleLoadable) settings.selectedModelId?.let(appVm::modelDisplayName) else null,
                         onOpenDrawer = openNav, onOpenModelSheet = { modelSheet = true },
                         onNewChat = { haptics.tap(); chatVm.newChat(); draft = "" },
+                        onCompactNow = if (canCompact) ({ chatVm.compactNow() }) else null,
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (messages.isEmpty() && (!gen.isBusy || gen is GenState.Queued)) {
@@ -288,10 +292,11 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                             // Measured (not the jump pill: it comes and goes while reading and must not shift the list).
                             Box(Modifier.fillMaxWidth().onSizeChanged { composerHeight = it.height }) {
                                 if (contextLimit) {
-                                    ContextLimitPanel(
-                                        used = usage.used, nCtx = usage.nCtx,
+                                    ContextFullPanel(
+                                        used = usage.used, nCtx = usage.nCtx, canCarryOver = canCompact,
                                         onNewChat = { chatVm.newChat(); draft = "" },
-                                        onTrim = { appVm.setAutoTrim(true) },
+                                        onCarryOver = { chatVm.carryOverSummary() },
+                                        onSwitchToRolling = { chatVm.switchToRolling() },
                                         modifier = Modifier.padding(12.dp),
                                     )
                                 } else {

@@ -1,0 +1,406 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "e9d53e12523b33f04c04595a9615bbc2",
+    "entities": [
+      {
+        "tableName": "conversations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `archived` INTEGER NOT NULL, `modelId` TEXT, `trimmedBefore` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "modelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "trimmedBefore",
+            "columnName": "trimmedBefore",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `thinking` TEXT, `createdAt` INTEGER NOT NULL, `finishReason` TEXT, `promptTokens` INTEGER NOT NULL, `reusedTokens` INTEGER NOT NULL, `generatedTokens` INTEGER NOT NULL, `prefillMs` INTEGER NOT NULL, `decodeMs` INTEGER NOT NULL, `imageEncodeMs` INTEGER NOT NULL, `kvUsedTokens` INTEGER NOT NULL, `nCtx` INTEGER NOT NULL, `paramsJson` TEXT, `templateName` TEXT, `templateSupported` INTEGER NOT NULL, `modelId` TEXT, `compactedThrough` INTEGER NOT NULL DEFAULT -1, `compactedCount` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`), FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conversationId",
+            "columnName": "conversationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "orderIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "thinking",
+            "columnName": "thinking",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "finishReason",
+            "columnName": "finishReason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "promptTokens",
+            "columnName": "promptTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reusedTokens",
+            "columnName": "reusedTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "generatedTokens",
+            "columnName": "generatedTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prefillMs",
+            "columnName": "prefillMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "decodeMs",
+            "columnName": "decodeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageEncodeMs",
+            "columnName": "imageEncodeMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kvUsedTokens",
+            "columnName": "kvUsedTokens",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nCtx",
+            "columnName": "nCtx",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paramsJson",
+            "columnName": "paramsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templateName",
+            "columnName": "templateName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "templateSupported",
+            "columnName": "templateSupported",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "modelId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "compactedThrough",
+            "columnName": "compactedThrough",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "-1"
+          },
+          {
+            "fieldPath": "compactedCount",
+            "columnName": "compactedCount",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_messages_conversationId_orderIndex",
+            "unique": false,
+            "columnNames": [
+              "conversationId",
+              "orderIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_messages_conversationId_orderIndex` ON `${TABLE_NAME}` (`conversationId`, `orderIndex`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "conversations",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "conversationId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "message_images",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`messageId` TEXT NOT NULL, `imageId` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, PRIMARY KEY(`messageId`, `imageId`), FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "messageId",
+            "columnName": "messageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageId",
+            "columnName": "imageId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderIndex",
+            "columnName": "orderIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "messageId",
+            "imageId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_message_images_messageId",
+            "unique": false,
+            "columnNames": [
+              "messageId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_message_images_messageId` ON `${TABLE_NAME}` (`messageId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "messages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "messageId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "generated_images",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `modelId` TEXT NOT NULL, `prompt` TEXT NOT NULL, `negative` TEXT NOT NULL, `width` INTEGER NOT NULL, `height` INTEGER NOT NULL, `steps` INTEGER NOT NULL, `seed` INTEGER NOT NULL, `sampler` TEXT NOT NULL, `totalMs` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `path` TEXT NOT NULL, `thumbPath` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelId",
+            "columnName": "modelId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "prompt",
+            "columnName": "prompt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "negative",
+            "columnName": "negative",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "width",
+            "columnName": "width",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "height",
+            "columnName": "height",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "steps",
+            "columnName": "steps",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seed",
+            "columnName": "seed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sampler",
+            "columnName": "sampler",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalMs",
+            "columnName": "totalMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "path",
+            "columnName": "path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "thumbPath",
+            "columnName": "thumbPath",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_generated_images_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_generated_images_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e9d53e12523b33f04c04595a9615bbc2')"
+    ]
+  }
+}

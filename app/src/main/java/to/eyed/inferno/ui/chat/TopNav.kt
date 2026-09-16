@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composables.icons.lucide.CircleAlert
 import com.composables.icons.lucide.Cpu
+import com.composables.icons.lucide.FoldVertical
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.PanelLeft
 import com.composables.icons.lucide.SquarePen
@@ -44,6 +45,7 @@ import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.GhostIconButton
 import to.eyed.inferno.ui.components.GlassMenu
 import to.eyed.inferno.ui.components.Hairline
+import to.eyed.inferno.ui.components.MenuActionRow
 import to.eyed.inferno.ui.theme.ChipLabel
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Numeric
@@ -70,20 +72,22 @@ fun TopNav(
     onOpenModelSheet: () -> Unit,
     onNewChat: () -> Unit,
     modifier: Modifier = Modifier,
+    /** "Compact now" in the context panel (long-press on the chip); null hides it (no chat, engine busy). */
+    onCompactNow: (() -> Unit)? = null,
 ) {
     Column(modifier.background(Ink.Pitch)) {
         Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
             if (showDrawerToggle) {
                 GhostIconButton(Lucide.PanelLeft, S.openSidebar, onOpenDrawer, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterStart))
             }
-            ModelChip(engine, contextUsage, resolvedCtxLabel, selectedModelName, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp))
+            ModelChip(engine, contextUsage, resolvedCtxLabel, selectedModelName, onOpenModelSheet, onCompactNow, Modifier.align(Alignment.Center).padding(horizontal = 48.dp))
             GhostIconButton(Lucide.SquarePen, S.newChat, onNewChat, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterEnd))
         }
         AnimatedVisibility(scrolled, enter = fadeIn(fastEffectsSpec()), exit = fadeOut(fastEffectsSpec())) { Hairline() }
     }
 }
 
-/** SurfaceHigh pill whose content follows the engine state; long-press reveals the resolved context label. */
+/** SurfaceHigh pill whose content follows the engine state; long-press reveals the context panel (resolved label, usage, Compact now). */
 @Composable
 private fun ModelChip(
     engine: EngineState,
@@ -91,6 +95,7 @@ private fun ModelChip(
     resolvedCtxLabel: String?,
     selectedModelName: String?,
     onClick: () -> Unit,
+    onCompactNow: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val haptics = rememberHaptics()
@@ -106,7 +111,7 @@ private fun ModelChip(
                 .combinedClickable(
                     interactionSource = interaction, indication = null, role = Role.Button,
                     onClick = onClick,
-                    onLongClick = if (resolvedCtxLabel != null && engine !is EngineState.Idle) ({ haptics.longPress(); info = true }) else null,
+                    onLongClick = if ((resolvedCtxLabel != null || onCompactNow != null) && engine !is EngineState.Idle) ({ haptics.longPress(); info = true }) else null,
                 )
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -138,7 +143,9 @@ private fun ModelChip(
             }
         }
         GlassMenu(expanded = info, onDismiss = { info = false }, minWidth = 120.dp) {
-            Text(resolvedCtxLabel ?: "", style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (resolvedCtxLabel != null) Text(resolvedCtxLabel, style = RowMeta, color = Ink.I300, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (usage.nCtx > 0) Text(S.contextUsed((usage.fraction * 100).toInt()), style = RowMeta, color = Ink.I500, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+            if (onCompactNow != null) MenuActionRow(Lucide.FoldVertical, S.compactNow) { info = false; onCompactNow() }
         }
     }
 }

@@ -24,7 +24,12 @@ interface ChatDao {
     @Upsert suspend fun upsertImages(i: List<MessageImageEntity>)
 
     @Query("DELETE FROM conversations WHERE id = :id") suspend fun deleteConversation(id: String)
-    @Query("DELETE FROM messages WHERE conversationId = :cid AND orderIndex >= :from") suspend fun deleteFrom(cid: String, from: Int)
+    /**
+     * Tail delete for regenerate / edit. A summary row is appended after the turns it covers, so one covering only
+     * messages before [from] survives: re-answering a recent turn must not throw away a 30 s compaction.
+     */
+    @Query("DELETE FROM messages WHERE conversationId = :cid AND orderIndex >= :from AND NOT (role = 'summary' AND compactedThrough < :from)")
+    suspend fun deleteFrom(cid: String, from: Int)
     @Query("DELETE FROM conversations") suspend fun deleteAll()
     @Query("SELECT COUNT(*) FROM message_images WHERE imageId = :imageId") suspend fun imageRefs(imageId: String): Int
     @Query("UPDATE conversations SET title = :title, updatedAt = :at WHERE id = :id") suspend fun rename(id: String, title: String, at: Long)

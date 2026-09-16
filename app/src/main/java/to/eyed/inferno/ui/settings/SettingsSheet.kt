@@ -145,7 +145,7 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
     SettingsCard {
         NavRow(S.systemPrompt, s.systemPrompt.trim().ifBlank { S.noSystemPrompt }, onClick = { sheet = "prompt" })
         CardDivider()
-        ToggleRow(S.autoTrim, s.autoTrim, appVm::setAutoTrim, description = S.autoTrimDesc)
+        ContextPolicyRow(s.contextPolicy, appVm::setContextPolicy)
         CardDivider()
         ToggleRow(S.streamingAnimations, s.streamingAnimations, appVm::setStreamingAnimations, description = S.streamingAnimationsDesc)
         CardDivider()
