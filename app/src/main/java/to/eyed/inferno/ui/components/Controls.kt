@@ -171,7 +171,8 @@ fun GlassButton(
             )
             .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        // Centred so a fillMaxWidth glass button (the metered-data sheet) reads like the primary one above it.
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         if (icon != null) Icon(icon, null, Modifier.size(14.dp), tint = textColor)
         Text(text, color = textColor, style = Typography.labelMedium)
