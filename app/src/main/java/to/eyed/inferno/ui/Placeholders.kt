@@ -130,57 +130,7 @@ fun FirstRunPlaceholder(appVm: AppViewModel, onBeforeDownload: () -> Unit) {
     }
 }
 
-// ---- Chat --------------------------------------------------------------------------------------------------
-
-@Composable
-fun ChatPlaceholder(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Unit) {
-    val engine by appVm.engine.collectAsStateWithLifecycle()
-    val messages by chatVm.messages.collectAsStateWithLifecycle()
-    val gen by chatVm.gen.collectAsStateWithLifecycle()
-    val pending by chatVm.pending.collectAsStateWithLifecycle()
-    val usage by chatVm.contextUsage.collectAsStateWithLifecycle()
-    val imageBusy by chatVm.imageBusy.collectAsStateWithLifecycle()
-    var draft by rememberSaveable { mutableStateOf("") }
-    val haptics = rememberHaptics()
-    val listState = rememberLazyListState()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { uris -> uris.take(2).forEach { chatVm.attachFromUri(it) } }
-
-    LaunchedEffect(messages.size, gen) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size) }
-
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            GhostIconButton(Lucide.SquarePen, S.newChat, onClick = { chatVm.newChat() })
-            ChipPill(chipText(engine), onClick = { appVm.navigate(Screen.MODELS) }, icon = Lucide.Cpu, modifier = Modifier.weight(1f))
-            GhostIconButton(Lucide.Wand, "Create image", onClick = { appVm.navigate(Screen.CREATE) })
-            GhostIconButton(Lucide.Gauge, S.benchmark, onClick = { appVm.navigate(Screen.BENCH) })
-            GhostIconButton(Lucide.Settings, S.settings, onClick = { appVm.navigate(Screen.SETTINGS) })
-        }
-        if (usage.nCtx > 0) UsageBar(usage.fraction, Modifier.padding(horizontal = 16.dp), approximate = usage.approximate)
-
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (messages.isEmpty() && !gen.isBusy) item { Text(S.emptyTitle, style = Typography.titleLarge, color = Ink.I300, modifier = Modifier.padding(top = 80.dp).fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
-            items(messages, key = { it.id }) { m -> MessageRow(m, streamingId = if (gen.isBusy) messages.lastOrNull()?.id else null, gen = gen) }
-            item { GenStatusLine(gen, hasAssistantRow = messages.lastOrNull()?.role == ChatRepository.ROLE_ASSISTANT) }
-        }
-
-        (gen as? GenState.Error)?.let { ErrorNotice(it.message, onDismiss = { chatVm.cancel() }, modifier = Modifier.padding(horizontal = 12.dp)) }
-        if (gen is GenState.Queued) QuietNotice(S.willSendWhenReady, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-        if (imageBusy) QuietNotice("Generating image…", Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
-        if (pending.isNotEmpty()) Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            pending.forEachIndexed { i, a ->
-                Box { AsyncImage(a.thumbPath, S.attachedImage, Modifier.size(56.dp).clip(RoundedCornerShape(Radii.control)))
-                    GhostIconButton(Lucide.X, S.removeImage, onClick = { chatVm.removeAttachment(i) }, size = 20.dp, iconSize = 12.dp, modifier = Modifier.align(Alignment.TopEnd)) }
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val canAttach = engine.modelOrNull?.hasVision == true
-            GhostIconButton(Lucide.Plus, S.attach, enabled = canAttach && pending.size < 2, onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-            FormField("", draft, { draft = it }, Modifier.weight(1f), placeholder = if (engine is EngineState.Idle) S.composerLoadModelToStart else S.composerPlaceholder, multiline = true)
-            if (gen.isBusy && gen !is GenState.Queued) GlassButton(S.stop, onClick = { chatVm.cancel() })
-            else GlassButton(S.send, enabled = draft.isNotBlank() && !imageBusy, onClick = { onBeforeSend(); haptics.gestureEnd(); chatVm.send(draft.trim()); draft = "" })
-        }
-    }
-}
+// ---- Chat: replaced by ui/chat/ChatRoot.kt (WP7) --------------------------------------------------------------
 
 private fun chipText(s: EngineState): String = when (s) {
     is EngineState.Idle -> S.chooseModel
@@ -189,45 +139,6 @@ private fun chipText(s: EngineState): String = when (s) {
     is EngineState.Generating -> s.loaded.model.displayName
     is EngineState.Suspended -> "${s.loaded.model.displayName} · ${S.suspended}"
     is EngineState.Error -> "${S.failed}: ${s.message}"
-}
-
-@Composable
-private fun MessageRow(m: ChatMessage, streamingId: String?, gen: GenState) {
-    val user = m.role == ChatRepository.ROLE_USER
-    // While streaming, the last assistant row shows the live text (Room lags by up to 2 s).
-    val live = if (m.id == streamingId && !user) (gen as? GenState.Streaming)?.text else null
-    Column(Modifier.fillMaxWidth().padding(start = if (user) 48.dp else 0.dp, end = if (user) 0.dp else 24.dp)
-        .surfaceCard(RoundedCornerShape(Radii.row), fill = if (user) Ink.SurfaceHigh else Ink.I850).padding(12.dp)) {
-        if (m.images.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { m.images.forEach { AsyncImage(it.thumbPath, S.attachedImage, Modifier.size(96.dp).clip(RoundedCornerShape(Radii.control))) } }
-        val thinking = (if (m.id == streamingId) (gen as? GenState.Streaming)?.reasoning ?: (gen as? GenState.Thinking)?.reasoning else null) ?: m.thinking
-        if (!thinking.isNullOrBlank()) Text(thinking, style = RowMeta, color = Ink.I500, modifier = Modifier.padding(bottom = 6.dp))
-        Text(live ?: m.content, style = Typography.bodyLarge, color = Ink.I100)
-        m.stats?.let { s ->
-            val meta = when {
-                s.finishReason == null && m.id != streamingId -> "· ${S.interrupted}"
-                s.finishReason == "CANCELLED" -> "· ${S.stopped}"
-                s.generatedTokens > 0 -> String.format(Locale.US, "%d tok · %.1f tok/s · prefill %d ms%s · ctx %d/%d", s.generatedTokens, s.decodeTps, s.prefillMs,
-                    if (s.imageEncodeMs > 0) " · image ${s.imageEncodeMs} ms" else "", s.kvUsedTokens, s.nCtx)
-                else -> null
-            }
-            if (meta != null) Text(meta, style = Meta, color = Ink.I500, modifier = Modifier.padding(top = 6.dp))
-        }
-    }
-}
-
-@Composable
-private fun GenStatusLine(gen: GenState, hasAssistantRow: Boolean) {
-    val text = when (gen) {
-        is GenState.Prefill -> if (gen.encodingImage) "Reading image${if (gen.expectedMs > 0) " · ~${(gen.expectedMs + 999) / 1000} s" else ""}" else "Thinking about it${if (gen.total > 0) " · ${gen.done}/${gen.total}" else ""}"
-        is GenState.Thinking -> "${S.thinking} ${gen.tokPerSec} tok/s"
-        is GenState.Streaming -> if (hasAssistantRow) "${gen.tokens} tok · ${gen.tokPerSec} tok/s" else gen.text
-        GenState.Trimming -> S.trimmingOlder
-        else -> null
-    } ?: return
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(4.dp)) {
-        LoadingIndicator(Modifier.size(16.dp), color = Ink.White)
-        Text(text, style = RowMeta, color = Ink.I300)
-    }
 }
 
 // ---- Models --------------------------------------------------------------------------------------------------

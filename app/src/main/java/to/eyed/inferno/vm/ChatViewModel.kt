@@ -144,6 +144,8 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             .onSuccess { att -> _pending.update { list -> if (list.any { it.id == att.id } || list.size >= MAX_ATTACHMENTS) list else list + att }; savePending() }
             .onFailure { appVmRef?.notice(it.message ?: "Couldn't read that image") }
     }
+    /** Output URI for ACTION_IMAGE_CAPTURE (additive WP7 helper; the UI keeps it in rememberSaveable across the camera app). */
+    fun newCameraUri(): Uri = c.images.newCameraUri()
     fun attachCameraResult(uri: Uri) = viewModelScope.launch {
         attachFromUri(uri).join()
         c.images.clearCache()
