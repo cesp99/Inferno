@@ -2,8 +2,10 @@ package to.eyed.inferno.models
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.net.Uri
 import android.os.StatFs
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -114,9 +116,29 @@ class ModelFiles(
      */
     suspend fun importGguf(uri: Uri, displayName: String?, isMmproj: Boolean, pairWith: String?): LocalModel {
         val resolver = resolver ?: throw IOException("No content resolver")
+        // Refuse up front rather than filling the disk to zero over minutes of copying (Room / DataStore would fail
+        // alongside). Providers that do not report a size (0) are not gated.
+        withContext(Dispatchers.IO) { sourceSize(resolver, uri).takeIf { it > 0 }?.let(::checkFreeSpace) }
         val name = uri.lastPathSegment
         return importFrom({ resolver.openInputStream(uri) ?: throw IOException("Cannot open the selected file") }, name, displayName, isMmproj, pairWith)
     }
+
+    /** Same gate as the downloader's (remaining + 256 MB margin); public so tests can drive it without a ContentResolver. */
+    fun checkFreeSpace(sourceBytes: Long) {
+        importedRoot.mkdirs()
+        val free = diskStats(importedRoot).first
+        if (free < sourceBytes + ModelRepository.FREE_SPACE_MARGIN) throw IOException("Not enough storage for this import")
+    }
+
+    /** Best-effort source length: OpenableColumns.SIZE, else the AssetFileDescriptor length; 0 when unknown (no gate). */
+    private fun sourceSize(resolver: ContentResolver, uri: Uri): Long = runCatching {
+        resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c ->
+            val i = c.getColumnIndex(OpenableColumns.SIZE)
+            if (i >= 0 && c.moveToFirst() && !c.isNull(i)) c.getLong(i) else -1L
+        }?.takeIf { it > 0 }
+            ?: resolver.openAssetFileDescriptor(uri, "r")?.use { it.length }?.takeIf { it > 0 && it != AssetFileDescriptor.UNKNOWN_LENGTH }
+            ?: 0L
+    }.getOrDefault(0L)
 
     /** Same as [importGguf] but from any stream (unit tests, future file-path imports). [sourceName] seeds the display name. */
     suspend fun importFrom(open: () -> InputStream, sourceName: String?, displayName: String?, isMmproj: Boolean, pairWith: String?): LocalModel =
@@ -130,7 +152,7 @@ class ModelFiles(
         val dir = File(importedRoot, id)
         val meta = readMeta(dir) ?: throw IOException("Unknown import id $id")
         val target = File(dir, MMPROJ_FILE)
-        val tmp = File(dir, "$MMPROJ_FILE.tmp")
+        val tmp = File(dir, "$MMPROJ_FILE$TMP_SUFFIX")
         try {
             copyTo(open, tmp)
             if (!isGguf(tmp)) throw IOException("Not a GGUF file")
@@ -144,7 +166,7 @@ class ModelFiles(
     }
 
     private suspend fun importModel(open: () -> InputStream, sourceName: String?, displayName: String?): LocalModel {
-        val staging = File(importedRoot, ".staging-${System.nanoTime()}")
+        val staging = File(importedRoot, "$STAGING_PREFIX${System.nanoTime()}")
         staging.mkdirs()
         val tmp = File(staging, MODEL_FILE)
         try {
@@ -168,6 +190,22 @@ class ModelFiles(
             writeMeta(dir, meta)
             return scan().models.first { it.id == id }
         } finally { staging.deleteRecursively() }
+    }
+
+    /**
+     * Startup / "Delete all" only, never while an import runs: removes what an import the process died in the middle
+     * of left behind (a `.staging-*` copy, a renamed dir whose meta.json was never written, a projector `.tmp`).
+     * scan() ignores all of these but storageInfo() counts them, so without this the space is unrecoverable.
+     */
+    suspend fun sweepImportOrphans() = withContext(Dispatchers.IO) {
+        importedRoot.listFiles()?.forEach { entry ->
+            when {
+                entry.name.startsWith(STAGING_PREFIX) -> entry.deleteRecursively()
+                entry.isDirectory && readMeta(entry) == null -> entry.deleteRecursively()
+                entry.isDirectory -> entry.listFiles()?.filter { it.name.endsWith(TMP_SUFFIX) }?.forEach { it.delete() }
+            }
+        }
+        Unit
     }
 
     /** Whole directory incl. .part/.part.json. The shared TAESD directory is never touched here. */
@@ -214,7 +252,7 @@ class ModelFiles(
     }.getOrNull()
 
     private fun writeMeta(dir: File, meta: ImportMeta) {
-        val tmp = File(dir, "$META_FILE.tmp")
+        val tmp = File(dir, "$META_FILE$TMP_SUFFIX")
         tmp.writeText(json.encodeToString(meta))
         if (!tmp.renameTo(File(dir, META_FILE))) throw IOException("Could not write meta.json")
     }
@@ -231,6 +269,8 @@ class ModelFiles(
         const val META_FILE = "meta.json"
         const val PART_SUFFIX = ".part"
         const val PART_JSON_SUFFIX = ".part.json"
+        const val STAGING_PREFIX = ".staging-"
+        private const val TMP_SUFFIX = ".tmp"
         private const val COPY_BUFFER = 1 shl 20
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 

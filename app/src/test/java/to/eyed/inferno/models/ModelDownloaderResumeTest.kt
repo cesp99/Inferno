@@ -225,6 +225,30 @@ class ModelDownloaderResumeTest {
         assertTrue(json.exists()); assertFalse(dest.exists())
     }
 
+    @Test fun cancelDuringAStalledReadIsImmediateAndIsNotANetworkLoss() = runBlocking {
+        // 8 kB then nothing for 30 s: without the call bound to the job, cancel would wait for the 5 s readTimeout.
+        server.enqueue(response(200, body).throttleBody(8 * 1024, 30_000, TimeUnit.MILLISECONDS).build())
+        val job = async(Dispatchers.IO) { downloader.download(spec, dest, { _, _, _ -> }) }
+        withTimeout(5_000) { while (part.length() == 0L) delay(10) }   // first chunk landed, the read now stalls
+        val t0 = System.nanoTime()
+        job.cancel()
+        val outcome = runCatching { job.await() }
+        val ms = (System.nanoTime() - t0) / 1_000_000
+        assertTrue("cancel took $ms ms", ms < 2_000)
+        assertTrue("expected a CancellationException, got ${outcome.exceptionOrNull()}", outcome.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+        assertTrue(part.exists() && part.length() > 0); assertTrue(json.exists())
+    }
+
+    @Test fun orphanedJsonNextToACompleteFileIsRemoved() {
+        // Process death between the rename and json.delete(): dest is complete, the json is stale.
+        dest.parentFile!!.mkdirs(); dest.writeBytes(body)
+        json.writeText("{}")
+        download()
+        assertArrayEquals(body, dest.readBytes())
+        assertFalse(json.exists())
+        assertEquals(0, server.requestCount)
+    }
+
     @Test fun progressTicksAreFrequent() = runBlocking {
         server.enqueue(response(200, body).throttleBody(4 * 1024, 60, TimeUnit.MILLISECONDS).build())
         val times = ArrayList<Long>()

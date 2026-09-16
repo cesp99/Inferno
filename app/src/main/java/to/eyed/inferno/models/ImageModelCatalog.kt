@@ -8,8 +8,9 @@ import to.eyed.inferno.sd.ImageScheduler
 /**
  * One downloadable file of an image model. Deliberately a separate, minimal type rather than WP3's
  * `ModelFileSpec`: image checkpoints have no `Quant` enum value that fits (sd.cpp GGUFs mix a q8_0 UNet
- * with an f16 text encoder) and the TAESD file is a safetensors, not a GGUF. Same URL pattern and byte-exact
- * sizes (from the HF API `?blobs=true`, 2026-09-16) so `ModelDownloader` can verify the length on completion.
+ * with an f16 text encoder) and the TAESD file is a safetensors, not a GGUF. Same URL pattern, byte-exact
+ * sizes and LFS sha256 (from the HF API `?blobs=true`, 2026-09-16) so `ModelDownloader` verifies length and
+ * hash on completion: a resumed partial of a re-uploaded same-size file must not pass as complete.
  */
 data class ImageModelFile(
     val fileName: String,
@@ -76,6 +77,7 @@ object ImageModelCatalog {
         fileName = "diffusion_pytorch_model.safetensors",
         url = "$HF/madebyollin/taesd/resolve/main/diffusion_pytorch_model.safetensors",
         sizeBytes = 9_793_292L,
+        sha256 = "db169d69145ec4ff064e49d99c95fa05d3eb04ee453de35824a6d0f325513549",
     )
 
     val dreamShaper = ImageCatalogModel(
@@ -99,6 +101,7 @@ object ImageModelCatalog {
             fileName = "DreamShaper8_LCM_q8_0.gguf",
             url = "$HF/haven-ai-companion/dreamshaper8-lcm-gguf/resolve/main/DreamShaper8_LCM_q8_0.gguf",
             sizeBytes = 1_802_206_336L,
+            sha256 = "dd06826d1eca711efa38190395a5ee949d0427fc6422c39433358a815e5b066c",
         ),
         minSteps = 2,
         maxSteps = 8,
@@ -129,6 +132,7 @@ object ImageModelCatalog {
             fileName = "sdxs-512-tinySDdistilled_Q8_0.gguf",
             url = "$HF/concedo/sdxs-512-tinySDdistilled-GGUF/resolve/main/sdxs-512-tinySDdistilled_Q8_0.gguf",
             sizeBytes = 682_847_200L,
+            sha256 = "409ab23582ee074c6b9d5395784fc0741b0599fb9d138686c69087c71678eb6a",
         ),
         minSteps = 1,
         maxSteps = 1,

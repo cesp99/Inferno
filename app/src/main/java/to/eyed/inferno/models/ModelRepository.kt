@@ -32,6 +32,10 @@ interface EngineAccess {
     suspend fun unload()
     /** `LlamaNative.estimateCacheClear()` on the engine thread: the no_alloc estimate cache holds the file open. */
     suspend fun clearEstimateCache()
+    /** Image engine (12.5): id of the sd.cpp model that is resident or generating, else null. */
+    val loadedImageModelId: String? get() = null
+    /** Cancels any image run and frees the sd.cpp context (`ImageGenRepository.unload`). */
+    suspend fun unloadImage() {}
 }
 
 /** The two `SettingsState` fields the download flow reads and writes (`data/AppPrefs`, WP4). */
@@ -45,24 +49,39 @@ interface DownloadPrefs {
 /** Connectivity + service start, abstracted so the queue logic runs in JVM unit tests. */
 interface DownloadPlatform {
     val isMetered: Boolean
-    fun startService()
-    /** Reports every validated default network with its metered flag until closed. */
+    /** False when the OS refused the start (background FGS restriction, API 31+); the caller rolls the enqueue back. */
+    fun startService(): Boolean
+    /**
+     * Reports each time a validated default network *appears* (edge-triggered: the network present at registration
+     * and later capability updates on it do not count) with its metered flag, until closed.
+     */
     fun watchNetwork(onAvailable: (metered: Boolean) -> Unit): AutoCloseable
 }
 
 class AndroidDownloadPlatform(private val context: Context) : DownloadPlatform {
     private val cm: ConnectivityManager get() = context.getSystemService(ConnectivityManager::class.java)
     override val isMetered: Boolean get() = cm.isActiveNetworkMetered
-    override fun startService() = DownloadService.start(context)
+    override fun startService(): Boolean = DownloadService.start(context)
     override fun watchNetwork(onAvailable: (metered: Boolean) -> Unit): AutoCloseable {
+        // registerDefaultNetworkCallback replays the current default network right after registration, and
+        // onCapabilitiesChanged also fires for bandwidth/capability updates of an unchanged network. Neither is a
+        // reconnect: remember which network we already consider validated and report only a different (or newly
+        // re-validated) one, so pauseAll / "No connection" do not restart the queue the instant the watch is armed.
+        val manager = cm
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))
-                    onAvailable(!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+            private var validated: Network? = manager.activeNetwork?.takeIf { n ->
+                manager.getNetworkCapabilities(n)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
             }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) { if (validated == network) validated = null; return }
+                if (validated == network) return
+                validated = network
+                onAvailable(!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))
+            }
+            override fun onLost(network: Network) { if (validated == network) validated = null }
         }
-        cm.registerDefaultNetworkCallback(cb)
-        return AutoCloseable { runCatching { cm.unregisterNetworkCallback(cb) } }
+        manager.registerDefaultNetworkCallback(cb)
+        return AutoCloseable { runCatching { manager.unregisterNetworkCallback(cb) } }
     }
 }
 
@@ -132,9 +151,13 @@ class ModelRepository(
     /** Reason to attach to the Paused state of the active id once its job has been cancelled (pauseAll). */
     private val pauseReasons = HashMap<String, String>()
     private var networkWatch: AutoCloseable? = null
-    private var stateSink: ((String, DownloadState) -> Unit)? = null
+    @Volatile private var stateSink: ((String, DownloadState) -> Unit)? = null
+    /** ON_START..ON_STOP. A ConnectivityManager callback may only start the FGS while this is true (or one runs). */
+    @Volatile private var foreground = false
+    /** Set by [pauseAll]: the dataSync budget is exhausted, nothing restarts before ON_START resets it. */
+    private var systemPaused = false
 
-    init { refresh() }
+    init { scope.launch { files.sweepImportOrphans(); refreshNow() } }
 
     // ---- queries ------------------------------------------------------------------------------------------------
 
@@ -185,13 +208,29 @@ class ModelRepository(
         if (files.isDownloaded(dl)) { refresh(); return }
         synchronized(lock) { if (modelId == activeId || modelId in queue) return }
         val remaining = files.remainingBytes(dl)
-        if (files.storageInfo().freeBytes < remaining + FREE_SPACE_MARGIN) { _notice.tryEmit("Not enough storage for this download"); return }
+        if (files.storageInfo().freeBytes < remaining + FREE_SPACE_MARGIN) {
+            // A system-initiated retry (Wi-Fi wait / reconnect / foreground) must not stay in autoResume, or every
+            // network callback re-runs this gate and re-emits the notice. Surface it like the downloader's own
+            // ENOSPC failure so the row shows Retry and the network watch can close.
+            val wasAuto = synchronized(lock) { autoResume.remove(modelId) }
+            if (wasAuto) {
+                transient.update { it + (modelId to DownloadState.Failed("Not enough storage", resumable = true)) }
+                updateNetworkWatch()
+            }
+            _notice.tryEmit("Not enough storage for this download"); return
+        }
         if (platform.isMetered && !allowMetered && !prefs.allowMeteredDownloads) { _meteredConfirm.value = MeteredRequest(modelId, remaining); return }
         _meteredConfirm.update { if (it?.modelId == modelId) null else it }
         synchronized(lock) { queue.addLast(modelId); autoResume.remove(modelId) }
         transient.update { it + (modelId to DownloadState.Queued) }
         updateNetworkWatch()
-        platform.startService()
+        if (!platform.startService()) {
+            // Background start refused: put the id back so ON_START (onAppForeground) restarts it instead of leaving
+            // it "Queued" with no service to drain the queue.
+            synchronized(lock) { queue.remove(modelId); autoResume += modelId }
+            transient.update { it + (modelId to DownloadState.Paused(0, 0, "Paused by the system")) }
+            updateNetworkWatch()
+        }
     }
 
     fun confirmMetered(modelId: String, always: Boolean) {
@@ -225,13 +264,23 @@ class ModelRepository(
         val job = synchronized(lock) { autoResume.remove(modelId); queue.remove(modelId); if (activeId == modelId) activeJob?.also { it.cancel() } else null }
         scope.launch {
             job?.join()
-            downloadsFor(modelId)?.let { files.discardPartial(it) } ?: files.discardPartial(modelId)
+            // Another image model may be transferring the shared TAESD file right now; unlinking its .part under the
+            // open stream makes verify() see 0 bytes and fails that download as corrupt. Leave the shared file to it.
+            val sharedBusy = synchronized(lock) {
+                (queue + listOfNotNull(activeId)).any { other -> other != modelId && imageCatalog.any { it.id == other } }
+            }
+            val dl = downloadsFor(modelId)?.filter { !sharedBusy || it.subdir != ImageModelCatalog.TAESD_DIR_ID }
+            dl?.let { files.discardPartial(it) } ?: files.discardPartial(modelId)
             transient.update { it - modelId }
             refreshNow()
         }
     }
 
-    /** DownloadService.onTimeout / network loss: everything pending becomes Paused(reason) and is auto-resumed later. */
+    /**
+     * DownloadService.onTimeout (dataSync budget exhausted): everything pending becomes Paused(reason) and stays so
+     * until ON_START, which resets the budget. The network watch is not armed for these ids: a reconnect while the
+     * budget is exhausted could not start the service anyway.
+     */
     fun pauseAll(reason: String) {
         val pending: List<String>
         val job: Job?
@@ -240,6 +289,7 @@ class ModelRepository(
             autoResume += pending
             activeId?.let { autoResume += it; pauseReasons[it] = reason }
             job = activeJob
+            systemPaused = true
         }
         transient.update { t -> t + pending.associateWith { DownloadState.Paused(0, 0, reason) } }
         job?.cancel()
@@ -248,7 +298,9 @@ class ModelRepository(
 
     /** ON_START => restart what the system or the network interrupted (the dataSync budget resets in the foreground). */
     fun onAppForeground(foreground: Boolean) {
+        this.foreground = foreground
         if (!foreground) return
+        synchronized(lock) { systemPaused = false }
         resumePending(platform.isMetered)
     }
 
@@ -258,9 +310,19 @@ class ModelRepository(
         ids.forEach { startDownload(it, allowMetered = true) }
     }
 
+    /**
+     * Android 12+ throws ForegroundServiceStartNotAllowedException for startForegroundService() from a background
+     * process unless one of our foreground services is already running. So from the ConnectivityManager callback the
+     * queue is only restarted while the app is visible or the download service is up; otherwise the ids simply stay
+     * in [autoResume] and ON_START restarts them.
+     */
+    private fun onNetworkAvailable(metered: Boolean) {
+        if (foreground || stateSink != null) resumePending(metered)
+    }
+
     private fun updateNetworkWatch() = synchronized(lock) {
-        val needed = autoResume.isNotEmpty()
-        if (needed && networkWatch == null) networkWatch = platform.watchNetwork { metered -> resumePending(metered) }
+        val needed = autoResume.isNotEmpty() && !systemPaused
+        if (needed && networkWatch == null) networkWatch = platform.watchNetwork(::onNetworkAvailable)
         else if (!needed) { networkWatch?.close(); networkWatch = null }
     }
 
@@ -339,6 +401,8 @@ class ModelRepository(
             if (engine.isGenerating) { _notice.tryEmit("Stop the current answer first"); return }
             engine.unload()
         }
+        // sd.cpp holds the checkpoint's weights (1-2 GB) until unloaded; a running generation is cancelled with it.
+        if (engine.loadedImageModelId == modelId) engine.unloadImage()
         engine.clearEstimateCache()
         files.delete(modelId)
         transient.update { it - modelId }
@@ -346,16 +410,18 @@ class ModelRepository(
         refreshNow()
     }
 
-    /** Settings > "Delete all models": unload up front, then every local model, image model and partial. */
+    /** Settings > "Delete all models": unload up front, then every local model, image model, partial and import leftover. */
     suspend fun deleteAll() {
         if (engine.isGenerating) { _notice.tryEmit("Stop the current answer first"); return }
         engine.unload()
+        engine.unloadImage()
         val ids = LinkedHashSet<String>()
         val s = snapshot.value
         ids += s.models.map { it.id }; ids += s.imageReady; ids += s.progress.keys
         ids += synchronized(lock) { queue.toList() + listOfNotNull(activeId) }
         ids.forEach { delete(it) }
         files.delete(ImageModelCatalog.TAESD_DIR_ID)
+        files.sweepImportOrphans()   // Settings only, never concurrent with an import in practice
         refreshNow()
     }
 

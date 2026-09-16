@@ -23,8 +23,8 @@ import kotlinx.coroutines.launch
  * dataSync foreground service that drives [ModelRepository.runQueue] and shows one progress notification
  * (spec 5.3). It exists only so a multi-GB transfer survives the app going to the background; every decision
  * (queue order, pause reasons, resume policy) lives in the repository, which the Application exposes through
- * [Host]. Holds a PARTIAL_WAKE_LOCK (re-acquired per file, 30 min timeout) + a high-performance Wi-Fi lock while
- * a file transfers; both are released in `finally`.
+ * [Host]. Holds a PARTIAL_WAKE_LOCK (30 min timeout, renewed while a file keeps transferring) + a high-performance
+ * Wi-Fi lock while a file transfers; both are released in `finally`.
  */
 class DownloadService : Service() {
 
@@ -36,8 +36,11 @@ class DownloadService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var lockedFile: Pair<String, Int>? = null
+    private var lockAcquiredMs = 0L
     private var lastNotifyMs = 0L
     private var lastPct = -1
+    /** Last posted notification, re-used when a Cancel action re-enters onStartCommand while another file transfers. */
+    private var shown: Notification? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -48,22 +51,27 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val repo = (application as? Host)?.modelRepository
-        if (repo == null) { Log.w(TAG, "Application does not implement DownloadService.Host"); stopSelf(); return START_NOT_STICKY }
-        if (intent?.action == ACTION_CANCEL) {
-            intent.getStringExtra(EXTRA_MODEL_ID)?.let(repo::cancelDownload)
-            return START_NOT_STICKY
-        }
-        startForeground(NOTIFICATION_ID, buildNotification("Preparing download", null, 0, null), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        if (queueJob?.isActive != true) {
-            queueJob = serviceScope.launch {
-                try {
-                    repo.runQueue { id, state -> onState(repo, id, state) }
-                } catch (e: Exception) {
-                    Log.w(TAG, "queue ended: ${e.javaClass.simpleName}: ${e.message}")
-                } finally {
-                    releaseLocks()
-                    stopSelf()
-                }
+        if (repo == null) { Log.w(TAG, "Application does not implement DownloadService.Host"); stopSelf(startId); return START_NOT_STICKY }
+        // The notification's Cancel action is a start too: it must fall through so its startId gets stopped below,
+        // otherwise the running job's stopSelf(olderId) is refused and an idle service outlives the queue.
+        val cancel = intent?.action == ACTION_CANCEL
+        if (cancel) intent?.getStringExtra(EXTRA_MODEL_ID)?.let(repo::cancelDownload)
+        val n = shown?.takeIf { cancel } ?: buildNotification("Preparing download", null, 0, null)
+        startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        // Every start gets its own job, serialized behind the previous one, and stops the service only with its own
+        // startId: an enqueue that reaches AMS while the previous job is exiting (runQueue saw an empty queue, the
+        // repository re-added an id a moment later) is refused by stopSelf(oldId) and drained by the new job instead
+        // of leaving the row "Queued" forever.
+        val previous = queueJob
+        queueJob = serviceScope.launch {
+            previous?.join()
+            try {
+                if (!repo.isQueueEmpty) repo.runQueue { id, state -> onState(repo, id, state) }
+            } catch (e: Exception) {
+                Log.w(TAG, "queue ended: ${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                releaseLocks()
+                stopSelf(startId)
             }
         }
         return START_NOT_STICKY
@@ -74,9 +82,11 @@ class DownloadService : Service() {
         when (state) {
             is DownloadState.Downloading -> {
                 val key = id to state.fileIndex
-                if (lockedFile != key) { lockedFile = key; acquireLocks() }
-                val pct = (state.fraction * 100).toInt().coerceIn(0, 100)
                 val now = System.currentTimeMillis()
+                if (lockedFile != key) { lockedFile = key; acquireLocks() }
+                // A single 2-4 GB file on a slow link outlives the 30 min timeout: renew while it is still transferring.
+                else if (now - lockAcquiredMs > WAKE_TIMEOUT_MS * 2 / 3) { lockAcquiredMs = now; wakeLock?.acquire(WAKE_TIMEOUT_MS) }
+                val pct = (state.fraction * 100).toInt().coerceIn(0, 100)
                 // NotificationManager rate-limits updates; ticks arrive every 250 ms so post at most twice a second.
                 if (pct != lastPct && now - lastNotifyMs >= 500) {
                     lastPct = pct; lastNotifyMs = now
@@ -95,6 +105,7 @@ class DownloadService : Service() {
     private fun acquireLocks() {
         releaseLocks()
         val pm = getSystemService(PowerManager::class.java)
+        lockAcquiredMs = System.currentTimeMillis()
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_TAG).apply { setReferenceCounted(false); acquire(WAKE_TIMEOUT_MS) }
         val wm = applicationContext.getSystemService(WifiManager::class.java)
         @Suppress("DEPRECATION")
@@ -125,7 +136,7 @@ class DownloadService : Service() {
         super.onDestroy()
     }
 
-    private fun notify(n: Notification) = getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, n)
+    private fun notify(n: Notification) { shown = n; getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, n) }
 
     private fun buildNotification(title: String, text: String?, pct: Int, cancelId: String?): Notification {
         val b = Notification.Builder(this, CHANNEL_ID)
@@ -158,8 +169,14 @@ class DownloadService : Service() {
         private const val WAKE_TAG = "inferno:download"
         private const val WAKE_TIMEOUT_MS = 30L * 60 * 1000
 
-        fun start(context: Context) {
-            context.startForegroundService(Intent(context, DownloadService::class.java))
+        /**
+         * False when the OS refuses the start (ForegroundServiceStartNotAllowedException: background app on API 31+,
+         * exhausted dataSync budget on API 35+). The caller keeps the id for ON_START instead of crashing the process.
+         */
+        fun start(context: Context): Boolean = try {
+            context.startForegroundService(Intent(context, DownloadService::class.java)); true
+        } catch (e: Exception) {
+            Log.w(TAG, "start refused: ${e.javaClass.simpleName}: ${e.message}"); false
         }
 
         /** Idempotent; InfernoApp creates the same channel at startup, this covers a cold start straight into the service. */

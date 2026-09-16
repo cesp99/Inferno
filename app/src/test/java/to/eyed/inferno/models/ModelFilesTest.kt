@@ -120,6 +120,29 @@ class ModelFilesTest {
         assertTrue("staging dirs are cleaned up", files.importedRoot.listFiles()!!.none { it.name.startsWith(".staging") })
     }
 
+    @Test fun sweepImportOrphansKeepsOnlyCompleteImports() = runBlocking {
+        val valid = files.importFrom({ Gguf.bytes(totalSize = 4096).inputStream() }, null, "Keep", false, null)
+        val validDir = files.dirFor(valid.id)
+        // Leftovers of imports the process died in: a staging copy, a renamed dir without meta.json, a projector .tmp.
+        File(files.importedRoot, "${ModelFiles.STAGING_PREFIX}1/model.gguf").apply { parentFile!!.mkdirs(); writeBytes(ByteArray(10)) }
+        File(files.importedRoot, "import-deadbeef/model.gguf").apply { parentFile!!.mkdirs(); writeBytes(ByteArray(10)) }
+        File(validDir, "mmproj.gguf.tmp").writeBytes(ByteArray(10))
+        assertEquals(3, files.importedRoot.listFiles()!!.size)
+
+        files.sweepImportOrphans()
+        assertEquals(listOf(validDir), files.importedRoot.listFiles()!!.toList())
+        assertEquals(setOf("model.gguf", "meta.json"), validDir.listFiles()!!.map { it.name }.toSet())
+        assertEquals(listOf(valid.id), files.scan().models.map { it.id })
+    }
+
+    @Test fun importRefusesWhenFreeSpaceIsBelowSourcePlusMargin() {
+        val tight = ModelFiles(root, null, { (ModelRepository.FREE_SPACE_MARGIN + 1000) to (128L shl 30) })
+        try { tight.checkFreeSpace(1001); fail() }
+        catch (e: IOException) { assertEquals("Not enough storage for this import", e.message) }
+        tight.checkFreeSpace(1000)
+        assertTrue("no staging dir is created by the gate", tight.importedRoot.listFiles()!!.isEmpty())
+    }
+
     @Test fun sha8IsStableAndSizeSensitive() {
         val f = File(root, "s.bin").apply { writeBytes(ByteArray(1000) { it.toByte() }) }
         val h1 = ModelFiles.sha8(f)
