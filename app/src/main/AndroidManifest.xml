@@ -2,27 +2,85 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- NO android.permission.CAMERA: the app never opens the camera itself. TakePicture launches the system
+         camera app via ACTION_IMAGE_CAPTURE, which needs no permission ONLY as long as CAMERA is not declared
+         (declaring it without holding it makes every ACTION_IMAGE_CAPTURE throw SecurityException on API 23+).
+         If an in-app camera is ever added, gate it with a RequestPermission(Manifest.permission.CAMERA) launcher. -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
+    <!-- Package visibility (API 30+): resolve the system camera before showing the "Take photo" action. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
+    <!-- allowBackup=false: chats and multi-GB models must never be auto-backed-up.
+         supportsRtl=false: v1 strings are hard-coded English and Lucide has no auto-mirrored variants; model
+         output in RTL scripts still renders correctly because Text defaults to TextDirection.Content.
+         tools:ignore=MissingClass: InfernoApp (WP5), EngineService (WP2) and DownloadService (WP3) are
+         delivered by other work packages; the manifest is committed first so every package builds against it.
+         DataExtractionRules is ignored on purpose: with allowBackup=false there is nothing to configure. -->
     <application
-        android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
+        android:name=".InfernoApp"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.Inferno">
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.Inferno.Starting"
+        tools:ignore="MissingClass,DataExtractionRules">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.Inferno"
-            android:windowSoftInputMode="adjustResize">
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Inferno.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
         </activity>
-    </application>
 
+        <!-- Keeps a user-started generation alive when the app goes to the background. -->
+        <service
+            android:name=".engine.EngineService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Completes a user-started on-device language-model generation while the app is in the background." />
+        </service>
+
+        <!-- Resumable model downloads with a progress notification. -->
+        <service
+            android:name=".models.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Camera capture target (cache/camera) and share-out of exported files (files/exports). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
 </manifest>
