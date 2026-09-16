@@ -68,6 +68,8 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     val models: StateFlow<List<ModelEntry>> = c.models.entries
     val imageDownloads: StateFlow<Map<String, DownloadState>> = c.models.imageDownloads
     val storage: StateFlow<StorageInfo> = c.models.storage
+    /** Model manager entry: files come and go outside the app (file managers, storage cleaners); the list is rescanned on open. */
+    fun rescanModels() = c.models.refresh()
     val meteredConfirm: StateFlow<ModelRepository.MeteredRequest?> = c.models.meteredConfirm
 
     /** BENCH exists only in developer mode: a stale saved screen (or a flag flipped off) lands on CHAT instead. */

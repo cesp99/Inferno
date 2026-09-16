@@ -24,6 +24,7 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -78,6 +79,7 @@ fun ModelManagerScreen(appVm: AppViewModel, onBeforeDownload: () -> Unit, onBack
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val loadInProgress by appVm.loadInProgress.collectAsStateWithLifecycle()
     val imageDownloads by appVm.imageDownloads.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { appVm.rescanModels() }
     val online by rememberIsOnline()
     val context = LocalContext.current
     val importModel = rememberImportFlow(appVm)
