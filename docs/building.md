@@ -43,4 +43,3 @@ own copy of ggml) and 5 MB the language-model library.
   and the callback interfaces the native side resolves by name. Keep them when adding native methods.
 * **16 KB pages.** After a native change verify alignment with
   `llvm-readelf -l <path>/libinferno.so | grep LOAD` (expect `0x4000`) and `zipalign -c -P 16 -v 4 app.apk`.
-* **Launcher icons:** `tools/icon/make_icons.sh path/to/Logo.png`.

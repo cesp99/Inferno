@@ -36,8 +36,8 @@ import to.eyed.inferno.ui.theme.defaultSpatialSpec
 import to.eyed.inferno.ui.theme.morphHalfCycleSpec
 import to.eyed.inferno.ui.theme.morphLoopSpec
 
-// The launcher foreground is a 108 dp adaptive canvas with the owl at 58 % of it
-// (tools/icon/make_icons.sh); OwlMark over-scales the drawable so `size` is the owl itself.
+// The launcher foreground is a 108 dp adaptive canvas with the owl at 58 % of it;
+// OwlMark over-scales the drawable so `size` is the owl itself.
 private const val MarkFraction = 0.58f
 
 /** The owl, tinted. Decorative: no semantics. */
