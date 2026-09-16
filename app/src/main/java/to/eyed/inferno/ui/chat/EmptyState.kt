@@ -36,12 +36,14 @@ import to.eyed.inferno.ui.theme.defaultEffectsSpec
 fun EmptyState(
     engine: EngineState,
     canAttachImages: Boolean,
+    loadable: Boolean,
     onSuggestion: (String) -> Unit,
     onDescribePhoto: () -> Unit,
     onChooseModel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val idle = engine is EngineState.Idle || engine is EngineState.Error
+    // Idle with a selected local model is still sendable (the VM reloads it), so only a truly empty engine asks.
+    val idle = (engine is EngineState.Idle && !loadable) || engine is EngineState.Error
     val loading = engine is EngineState.Loading
     Column(
         modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 24.dp),

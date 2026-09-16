@@ -107,7 +107,7 @@ fun ModelCard(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     role = Role.Button,
-                ) { haptics.tap(); actions.onLoad?.invoke() } else Modifier,
+                ) { haptics.tap(); actions.onLoad.invoke() } else Modifier,
             )
             .padding(horizontal = 16.dp, vertical = 14.dp)
             .animateContentSize(layoutSpec()),

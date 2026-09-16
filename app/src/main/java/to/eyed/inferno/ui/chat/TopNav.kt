@@ -65,6 +65,7 @@ fun TopNav(
     resolvedCtxLabel: String?,
     scrolled: Boolean,
     showDrawerToggle: Boolean,
+    selectedModelName: String?,
     onOpenDrawer: () -> Unit,
     onOpenModelSheet: () -> Unit,
     onNewChat: () -> Unit,
@@ -75,7 +76,7 @@ fun TopNav(
             if (showDrawerToggle) {
                 GhostIconButton(Lucide.PanelLeft, S.openSidebar, onOpenDrawer, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterStart))
             }
-            ModelChip(engine, contextUsage, resolvedCtxLabel, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp))
+            ModelChip(engine, contextUsage, resolvedCtxLabel, selectedModelName, onOpenModelSheet, Modifier.align(Alignment.Center).padding(horizontal = 48.dp))
             GhostIconButton(Lucide.SquarePen, S.newChat, onNewChat, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterEnd))
         }
         AnimatedVisibility(scrolled, enter = fadeIn(fastEffectsSpec()), exit = fadeOut(fastEffectsSpec())) { Hairline() }
@@ -88,6 +89,7 @@ private fun ModelChip(
     engine: EngineState,
     usage: ChatViewModel.ContextUsage,
     resolvedCtxLabel: String?,
+    selectedModelName: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -111,7 +113,7 @@ private fun ModelChip(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             val fade = fastEffectsSpec<Float>()
-            val chip = chipState(engine)
+            val chip = chipState(engine, selectedModelName)
             // Keyed on the kind only: the loading percentage ticks every few hundred ms and must not restart
             // the crossfade; its text is tabular so the pill never jitters.
             AnimatedContent(
@@ -144,8 +146,9 @@ private fun ModelChip(
 private enum class ChipKind { IDLE, LOADING, READY, SUSPENDED, ERROR }
 private data class ChipState(val kind: ChipKind, val text: String, val color: androidx.compose.ui.graphics.Color)
 
-private fun chipState(s: EngineState): ChipState = when (s) {
-    is EngineState.Idle -> ChipState(ChipKind.IDLE, S.chooseModel, Ink.I500)
+/** Idle with a selected local model (e.g. after an image generation released the weights, 12.5): its name, dimmed - the next send reloads it. */
+private fun chipState(s: EngineState, selectedModelName: String?): ChipState = when (s) {
+    is EngineState.Idle -> ChipState(ChipKind.IDLE, selectedModelName ?: S.chooseModel, Ink.I500)
     is EngineState.Loading -> ChipState(ChipKind.LOADING, loadingText(s), Ink.I300)
     is EngineState.Ready -> ChipState(ChipKind.READY, s.loaded.model.displayName, Ink.I100)
     is EngineState.Generating -> ChipState(ChipKind.READY, s.loaded.model.displayName, Ink.I100)

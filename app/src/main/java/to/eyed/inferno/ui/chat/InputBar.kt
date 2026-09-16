@@ -126,7 +126,7 @@ fun InputBar(
     val enabledCard by animateFloatAsState(if (idle) 0.6f else 1f, fastEffectsSpec(), label = "composerAlpha")
     val placeholder = when {
         disabledReason != null -> disabledReason
-        loading -> S.loadingModel((engine as EngineState.Loading).model.displayName)
+        engine is EngineState.Loading -> S.loadingModel(engine.model.displayName)
         else -> S.composerPlaceholder
     }
     Column(modifier.fillMaxWidth()) {

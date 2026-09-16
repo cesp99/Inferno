@@ -31,6 +31,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -66,6 +67,7 @@ import to.eyed.inferno.ui.components.GlassButton
 import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.PrimaryButton
 import to.eyed.inferno.ui.components.SheetHeader
+import to.eyed.inferno.ui.models.ModelSheet
 import to.eyed.inferno.ui.theme.defaultEffectsSpec
 import to.eyed.inferno.ui.theme.defaultSpatialSpec
 import to.eyed.inferno.ui.theme.fastSpatialSpec
@@ -87,7 +89,7 @@ private val EngineState.loadedAny: LoadedModel?
  * purely visual lives here in rememberSaveable; everything else is read from the ViewModels.
  */
 @Composable
-fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Unit) {
+fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Unit, onDrawerOpenChanged: (Boolean) -> Unit = {}) {
     val engine by appVm.engine.collectAsStateWithLifecycle()
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val models by appVm.models.collectAsStateWithLifecycle()
@@ -111,6 +113,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     var detailsId by rememberSaveable { mutableStateOf<String?>(null) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var renameId by rememberSaveable { mutableStateOf<String?>(null) }
+    var modelSheet by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf<String?>(null) }
     var announceId by remember { mutableStateOf<String?>(null) }
     var dismissedError by remember { mutableStateOf<GenState.Error?>(null) }
@@ -199,6 +202,10 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     // ---- shell ------------------------------------------------------------------------------------------------
     val expanded = currentWindowAdaptiveInfo().windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // Root hides its global chips while the drawer is out; targetValue flips as soon as a swipe commits.
+    val drawerOut = !expanded && drawerState.targetValue == DrawerValue.Open
+    LaunchedEffect(drawerOut) { onDrawerOpenChanged(drawerOut) }
+    DisposableEffect(Unit) { onDispose { onDrawerOpenChanged(false) } }
     var paneVisible by rememberSaveable { mutableStateOf(true) }
     val closeNav: () -> Unit = { if (!expanded) scope.launch { drawerState.close() } }
     val openNav: () -> Unit = { if (expanded) paneVisible = !paneVisible else scope.launch { drawerState.open() } }
@@ -240,16 +247,16 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                 Column(Modifier.fillMaxSize()) {
                     TopNav(
                         engine = engine, contextUsage = usage, resolvedCtxLabel = loadPlan?.resolvedLabel, scrolled = scrolled,
-                        showDrawerToggle = true,
-                        onOpenDrawer = openNav, onOpenModelSheet = { appVm.navigate(Screen.MODELS) },
+                        showDrawerToggle = true, selectedModelName = if (idleLoadable) settings.selectedModelId?.let(appVm::modelDisplayName) else null,
+                        onOpenDrawer = openNav, onOpenModelSheet = { modelSheet = true },
                         onNewChat = { haptics.tap(); chatVm.newChat(); draft = "" },
                     )
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (messages.isEmpty() && (!gen.isBusy || gen is GenState.Queued)) {
                             EmptyState(
-                                engine = engine, canAttachImages = canAttachImages,
+                                engine = engine, canAttachImages = canAttachImages, loadable = idleLoadable,
                                 onSuggestion = { draft = it }, onDescribePhoto = pickPhotos,
-                                onChooseModel = { appVm.navigate(Screen.MODELS) },
+                                onChooseModel = { modelSheet = true },
                                 modifier = Modifier.align(Alignment.Center).padding(bottom = 96.dp),
                             )
                         } else {
@@ -313,6 +320,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     }
 
     // ---- sheets -----------------------------------------------------------------------------------------------
+    if (modelSheet) ModelSheet(appVm, onDismiss = { modelSheet = false }, onOpenManager = { appVm.navigate(Screen.MODELS) })
     detailsId?.let { id ->
         val m = messages.firstOrNull { it.id == id }
         val stats = m?.stats

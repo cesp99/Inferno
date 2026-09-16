@@ -6,6 +6,7 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,10 +16,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Text
@@ -26,7 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -75,8 +76,8 @@ import to.eyed.inferno.vm.Screen
 import to.eyed.inferno.vm.isBusy
 
 /**
- * Screen switch + global sheets (spec 5.6 Root.kt). Until WP7/WP8/WP9b-ui land, every screen is a minimal
- * placeholder from ui/Placeholders.kt built from the WP6 components, so the whole pipeline runs end to end.
+ * Screen switch + global sheets (spec 5.6 Root.kt): the onboarding gates, the six screens, the metered-data
+ * sheet and the global notices (error card, thermal chip).
  * Predictive back order (6.7): sheets (M3) > screen (MODELS/BENCH/... -> CHAT with a scale/translate/alpha preview) > system.
  */
 @Composable
@@ -91,6 +92,8 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
     val engine by appVm.engine.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // The chat drawer reports when it is out so the global chips do not float over it.
+    var drawerOpen by remember { mutableStateOf(false) }
 
     CompositionLocalProvider(LocalAnimations provides settings.streamingAnimations, LocalHaptics provides settings.haptics) {
         val haptics = rememberHaptics()
@@ -131,15 +134,19 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
             when {
                 !container.isCpuSupported -> UnsupportedCpuScreen(container.cpu)
                 showFirstRun -> FirstRunScreen(appVm, onBeforeDownload = ensureNotifications)
-                else -> Screens(appVm, chatVm, benchVm, imageVm, screen, ensureNotifications)
+                else -> Screens(appVm, chatVm, benchVm, imageVm, screen, ensureNotifications, onDrawerOpenChanged = { drawerOpen = it })
             }
 
-            // Global notices, top-centre: error card, then the thermal chip.
-            Column(Modifier.align(Alignment.TopCenter).padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                notice?.let { ErrorNotice(it, onDismiss = appVm::dismissNotice) }
-                if (isHot) {
-                    Spacer(Modifier.height(8.dp))
-                    ChipPill(S.phoneIsHot, onClick = {}, icon = Lucide.Thermometer, textColor = Ink.I300)
+            // Global notices, top-centre, below the 52 dp nav row of every screen: error card, then the thermal chip.
+            // Hidden while the chat drawer is out (the drawer owns the top of the screen then).
+            AnimatedVisibility(
+                visible = !drawerOpen && (notice != null || isHot),
+                enter = fadeIn(defaultEffectsSpec()), exit = fadeOut(defaultEffectsSpec()),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                Column(Modifier.padding(horizontal = 16.dp).padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    notice?.let { ErrorNotice(it, onDismiss = appVm::dismissNotice) }
+                    if (isHot) ChipPill(S.phoneIsHot, onClick = {}, icon = Lucide.Thermometer, textColor = Ink.I300)
                 }
             }
 
@@ -155,7 +162,7 @@ fun InfernoRoot(container: AppContainer, appVm: AppViewModel, chatVm: ChatViewMo
 }
 
 @Composable
-private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchViewModel, imageVm: ImageGenViewModel, screen: Screen, ensureNotifications: () -> Unit) {
+private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchViewModel, imageVm: ImageGenViewModel, screen: Screen, ensureNotifications: () -> Unit, onDrawerOpenChanged: (Boolean) -> Unit) {
     // Predictive back preview for the screen level: the outgoing screen scales/slides/fades with the gesture.
     val back = remember { Animatable(0f) }
     val springBack = fastSpatialSpec<Float>()
@@ -189,7 +196,7 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
         },
     ) { s ->
         when (s) {
-            Screen.CHAT -> ChatRoot(appVm, chatVm, onBeforeSend = ensureNotifications)
+            Screen.CHAT -> ChatRoot(appVm, chatVm, onBeforeSend = ensureNotifications, onDrawerOpenChanged = onDrawerOpenChanged)
             Screen.MODELS -> ModelManagerScreen(appVm, onBeforeDownload = ensureNotifications)
             Screen.SETTINGS -> SettingsScreen(appVm, chatVm)
             Screen.BENCH -> BenchScreen(benchVm, appVm)
