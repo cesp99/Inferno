@@ -44,9 +44,9 @@ fun UnsupportedCpuScreen(cpu: CpuTopology?) {
             Column(Modifier.fillMaxWidth().widthIn(max = 480.dp), verticalArrangement = Arrangement.spacedBy(0.dp)) {
                 SectionHeader(S.detectedFeatures)
                 SettingsCard {
-                    Fact("SoC", cpu.socName)
+                    Fact(S.soc, cpu.socName)
                     CardDivider()
-                    Fact("Cores", "${cpu.nCores} · ${cpu.nBig} big")
+                    Fact(S.cores, S.coresLine(cpu.nCores, cpu.nBig))
                     CardDivider()
                     Fact("dotprod", yesNo(cpu.hasDotprod))
                     CardDivider()
@@ -64,4 +64,4 @@ private fun Fact(label: String, value: String) {
     SettingRow(label) { Text(value, style = Numeric, color = Ink.I300) }
 }
 
-private fun yesNo(v: Boolean) = if (v) "yes" else "no"
+private fun yesNo(v: Boolean) = if (v) S.yes else S.no

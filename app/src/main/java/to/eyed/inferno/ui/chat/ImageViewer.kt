@@ -4,11 +4,9 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -66,8 +64,8 @@ fun SharedTransitionScope.ImageViewer(
             .fillMaxSize()
             .graphicsLayer { alpha = scrim }
             .background(Color.Black)
-            // The scrim swallows taps so the chat underneath never receives them.
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
+            // The scrim swallows taps so the chat underneath never receives them (no click semantics: nothing to activate).
+            .pointerInput(Unit) { detectTapGestures { } },
         contentAlignment = Alignment.Center,
     ) {
         AsyncImage(

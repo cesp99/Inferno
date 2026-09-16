@@ -25,6 +25,30 @@ class MarkdownChunkerTest {
     }
 
     @Test
+    fun `inline code at line start is not a fence opener`() {
+        val chunks = MarkdownChunker.chunks("```foo``` does X\n\nnext\n\nlast")
+        assertEquals(listOf("```foo``` does X", "next", "last"), chunks)
+    }
+
+    @Test
+    fun `longer backtick fence contains a shorter one`() {
+        val chunks = MarkdownChunker.chunks("````md\n```py\nx\n\ny\n```\n````\n\nafter")
+        assertEquals(listOf("````md\n```py\nx\n\ny\n```\n````", "after"), chunks)
+    }
+
+    @Test
+    fun `tilde fence is not closed by backticks`() {
+        val chunks = MarkdownChunker.chunks("~~~\n```\na\n\nb\n~~~\n\nafter")
+        assertEquals(listOf("~~~\n```\na\n\nb\n~~~", "after"), chunks)
+    }
+
+    @Test
+    fun `closer with an info string is content`() {
+        val chunks = MarkdownChunker.chunks("```\ncode\n```extra\n\nstill code\n```\n\nafter")
+        assertEquals(listOf("```\ncode\n```extra\n\nstill code\n```", "after"), chunks)
+    }
+
+    @Test
     fun `list runs separated by blank lines stay together`() {
         val chunks = MarkdownChunker.chunks("1. first\n\n2. second\n\n- bullet\n\nplain")
         assertEquals(2, chunks.size)

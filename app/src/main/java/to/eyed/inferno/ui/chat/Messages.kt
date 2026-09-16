@@ -279,6 +279,7 @@ private fun SharedTransitionScope.UserBubble(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {},
+                        onLongClickLabel = S.messageActions,
                         onLongClick = { haptics.longPress(); menu = true },
                     )
                     .padding(horizontal = 16.dp, vertical = 11.dp),

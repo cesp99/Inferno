@@ -132,7 +132,7 @@ fun BenchScreen(benchVm: BenchViewModel, appVm: AppViewModel, onBack: () -> Unit
                 }
             }
 
-            SectionHeader("Results")
+            SectionHeader(S.results)
             if (rows.isEmpty()) {
                 Text(S.benchIdle, style = Typography.bodyMedium, color = Ink.I500, modifier = Modifier.padding(horizontal = 8.dp))
             } else {
@@ -141,15 +141,15 @@ fun BenchScreen(benchVm: BenchViewModel, appVm: AppViewModel, onBack: () -> Unit
                         Eyebrow(S.label, Modifier.weight(1f))
                         Eyebrow(S.thr, Modifier.width(40.dp))
                         Eyebrow(S.kv, Modifier.width(56.dp))
-                        Eyebrow("pp", Modifier.width(64.dp))
-                        Eyebrow("tg", Modifier.width(56.dp))
+                        Eyebrow(S.pp, Modifier.width(64.dp))
+                        Eyebrow(S.tg, Modifier.width(56.dp))
                     }
                     rows.forEach { r ->
                         CardDivider()
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(r.label, style = Typography.bodyMedium, color = Ink.White)
-                                Text(if (r.pinned) "pinned" else "free", style = Typography.bodySmall, color = Ink.I500)
+                                Text(if (r.pinned) S.pinnedCores else S.freeCores, style = Typography.bodySmall, color = Ink.I500)
                             }
                             Text(r.threads.toString(), style = Numeric, color = Ink.I300, modifier = Modifier.width(40.dp))
                             Text(r.kv.name, style = Numeric, color = Ink.I300, modifier = Modifier.width(56.dp))

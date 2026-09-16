@@ -331,7 +331,7 @@ fun Hairline(modifier: Modifier = Modifier) {
 @Composable
 fun ChipPill(
     text: String,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -339,8 +339,9 @@ fun ChipPill(
     enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    Row(
-        modifier
+    // A status chip (no onClick) is plain text to TalkBack: no Button role, no "double tap to activate".
+    val click = if (onClick != null) {
+        Modifier
             .minimumInteractiveComponentSize()
             .pressScale(interaction, 0.96f)
             .clip(CircleShape)
@@ -352,6 +353,12 @@ fun ChipPill(
                 role = Role.Button,
                 onClick = onClick,
             )
+    } else {
+        Modifier.clip(CircleShape).background(Ink.SurfaceHigh)
+    }
+    Row(
+        modifier
+            .then(click)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),

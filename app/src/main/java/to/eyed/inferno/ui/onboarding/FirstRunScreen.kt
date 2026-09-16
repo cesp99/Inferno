@@ -130,7 +130,7 @@ private fun RecommendedCard(state: DownloadState, engine: EngineState, appVm: Ap
         Spacer(Modifier.height(8.dp))
         Text(rec.displayName, style = Typography.titleMedium, color = Ink.White)
         Spacer(Modifier.height(2.dp))
-        Text("${DownloadService.fmt(rec.totalBytes)} download · ${if (rec.hasVision) "text + vision" else "text"} · ${licenceLine(rec.license)}", style = Typography.bodyMedium, color = Ink.I500)
+        Text(S.downloadLine(DownloadService.fmt(rec.totalBytes), rec.hasVision, licenceLine(rec.license)), style = Typography.bodyMedium, color = Ink.I500)
         Spacer(Modifier.height(6.dp))
         Text(rec.blurb, style = Typography.bodySmall, color = Ink.I500)
         Spacer(Modifier.height(18.dp))

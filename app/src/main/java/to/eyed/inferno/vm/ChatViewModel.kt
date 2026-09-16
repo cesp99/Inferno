@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -41,6 +43,7 @@ import to.eyed.inferno.engine.PromptMessage
 import to.eyed.inferno.engine.modelOrNull
 import to.eyed.inferno.models.ImageDetail
 import to.eyed.inferno.models.ThinkingSpec
+import to.eyed.inferno.ui.S
 
 /**
  * Conversations + generation (spec 5.5). One private [run] over the PERSISTED history; send / regenerate /
@@ -57,10 +60,10 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         // A queued send waits for Ready; it fails when the engine settles in Idle/Error with no load in flight.
         viewModelScope.launch {
             combine(c.engine.state, app.loadInProgress) { s, loading -> s to loading }.collect { (s, loading) ->
-                if (s is EngineState.Ready) pendingSend?.let { (text, atts) -> pendingSend = null; dispatch(text, atts) }
-                if ((s is EngineState.Idle || s is EngineState.Error) && !loading && pendingSend != null) {
+                if (s is EngineState.Ready) pendingSend?.let { q -> pendingSend = null; dispatch(q.text, q.attachments, q.target) }
+                if ((s is EngineState.Idle || s is EngineState.Error) && !loading) pendingSend?.let { q ->
                     pendingSend = null
-                    setGen(activeId.value ?: NO_CHAT, GenState.Error((s as? EngineState.Error)?.message ?: "Could not load the model"))
+                    setGen(q.target, GenState.Error((s as? EngineState.Error)?.message ?: S.couldNotLoadModel))
                 }
             }
         }
@@ -116,15 +119,31 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
      * [ContextManager.STOP_FRACTION]); ChatRoot swaps the composer for the ContextFullPanel.
      */
     val contextFull: StateFlow<Boolean> = combine(activeId, stopFull, contextUsage, c.prefs.settings) { id, full, usage, s ->
-        s.contextPolicy == ContextPolicy.STOP && ((id != null && id in full) || ContextManager.contextFull(usage.used, usage.nCtx))
+        // The chars/4 estimate (approximate = true) must never gate the composer (5.5): only fit()'s real measure at
+        // send time or an exact kvUsed count from the last turn may show the panel.
+        s.contextPolicy == ContextPolicy.STOP && ((id != null && id in full) || (!usage.approximate && ContextManager.contextFull(usage.used, usage.nCtx)))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     /** True while an image generation owns the native job: the composer disables Send (12.5). */
     val imageBusy: StateFlow<Boolean> = c.imageGen.state.map { it is to.eyed.inferno.imagegen.ImageGenUiState.Loading || it is to.eyed.inferno.imagegen.ImageGenUiState.Generating }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    private var genJob: Job? = null
-    private var pendingSend: Pair<String, List<Attachment>>? = null
+    /**
+     * One generation job per conversation (NO_CHAT for a not-yet-created one): chats generate independently, so Stop
+     * must cancel the job of the chat it was pressed in, not whichever job started last.
+     */
+    private val genJobs = mutableMapOf<String, Job>()
+    /** A turn queued while the model loads, remembered with the chat it was typed in (5.5). */
+    private data class QueuedSend(val target: String, val text: String, val attachments: List<Attachment>)
+    private var pendingSend: QueuedSend? = null
+
+    /** Registers the job under [key] before its body runs (LAZY start) so a cancel() can never miss it. */
+    private fun launchGen(key: String, block: suspend CoroutineScope.() -> Unit): Job {
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY, block = block)
+        genJobs[key] = job
+        job.start()
+        return job
+    }
 
     init {
         viewModelScope.launch {
@@ -144,10 +163,26 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     fun pin(id: String, pinned: Boolean) = viewModelScope.launch { c.chats.setPinned(id, pinned) }
     fun archive(id: String, archived: Boolean) = viewModelScope.launch { c.chats.setArchived(id, archived) }
     fun delete(id: String) = viewModelScope.launch {
-        if (id == activeId.value) { if (gen.value.isBusy) cancel(); handle[KEY_ACTIVE] = null }
+        if (id == activeId.value) handle[KEY_ACTIVE] = null
+        stopFull.update { it - id }
+        if (genStates.value[id]?.isBusy == true) {
+            // A busy chat (active or not) must not keep generating into a deleted row: cancel and wait for run()'s
+            // NonCancellable handler, so its last updateAssistant lands before the cascade removes the messages.
+            if (pendingSend?.target == id) pendingSend = null
+            genJobs.remove(id)?.let { it.cancel(); it.join() }
+            genStates.update { it - id }
+        }
         c.chats.delete(id)
     }
-    fun deleteAll() = viewModelScope.launch { cancel(); handle[KEY_ACTIVE] = null; c.chats.deleteAll() }
+    fun deleteAll() = viewModelScope.launch {
+        pendingSend = null
+        genJobs.values.toList().forEach { it.cancel() }
+        genJobs.clear()
+        genStates.value = emptyMap()
+        stopFull.value = emptySet()
+        handle[KEY_ACTIVE] = null
+        c.chats.deleteAll()
+    }
     fun jumpToLatest() { /* UI-only helper: the list owner scrolls; kept for the 5.5 surface */ }
 
     // ---- attachments -----------------------------------------------------------------------------------------
@@ -156,7 +191,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         if (_pending.value.size >= MAX_ATTACHMENTS) return@launch
         runCatching { c.images.importImage(uri) }
             .onSuccess { att -> _pending.update { list -> if (list.any { it.id == att.id } || list.size >= MAX_ATTACHMENTS) list else list + att }; savePending() }
-            .onFailure { appVmRef?.notice(it.message ?: "Couldn't read that image") }
+            .onFailure { appVmRef?.notice(it.message ?: S.couldNotReadImage) }
     }
     /** Output URI for ACTION_IMAGE_CAPTURE (additive WP7 helper; the UI keeps it in rememberSaveable across the camera app). */
     fun newCameraUri(): Uri = c.images.newCameraUri()
@@ -182,31 +217,42 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     /** Ready/Suspended: run now; Loading: queue one turn (replacing an earlier queued one); Idle: "Choose a model first". */
     fun send(text: String) {
         val current = gen.value
-        if (current.isBusy && current !is GenState.Queued) { appVmRef?.notice("Stop the current answer first"); return }
-        if (imageBusy.value) { appVmRef?.notice("Wait for the image to finish first"); return }
+        if (current.isBusy && current !is GenState.Queued) { appVmRef?.notice(S.stopCurrentAnswer); return }
+        if (imageBusy.value) { appVmRef?.notice(S.waitForImageFirst); return }
         val atts = _pending.value
         fun queue() {
-            pendingSend = text to atts
+            // Replacing an earlier queued turn must not leave its chat stuck in Queued.
+            pendingSend?.let { setGen(it.target, GenState.Idle) }
+            val target = activeId.value ?: NO_CHAT
+            pendingSend = QueuedSend(target, text, atts)
             _pending.value = emptyList(); savePending()
-            setGen(activeId.value ?: NO_CHAT, GenState.Queued(text))
+            setGen(target, GenState.Queued(text))
         }
         when (c.engine.state.value) {
             is EngineState.Loading -> queue()
             is EngineState.Idle, is EngineState.Error -> {
+                // A plan/load is already in flight (the engine stays Idle while ContextManager.plan() probes):
+                // just queue; calling selectAndLoad() again would cancel and restart it.
+                if (appVmRef?.loadInProgress?.value == true) { queue(); return }
                 // Idle with a selected local model (e.g. after an image generation released the LLM, 12.5):
                 // reload it and queue the turn instead of bouncing the user to the model picker.
                 val selected = c.prefs.settings.value.selectedModelId?.let { c.models.local(it) }
                 if (selected != null && appVmRef != null) { appVmRef!!.selectAndLoad(selected.id); queue() }
-                else appVmRef?.notice("Choose a model first")
+                else appVmRef?.notice(S.chooseModelFirst)
             }
             else -> dispatch(text, atts)
         }
     }
 
-    private fun dispatch(text: String, atts: List<Attachment>) {
-        genJob = viewModelScope.launch {
-            val id = activeId.value ?: c.chats.create(c.engine.state.value.modelOrNull?.id).id.also { handle[KEY_ACTIVE] = it }
-            genStates.update { it - NO_CHAT }
+    /** [target] is the chat the turn belongs to (NO_CHAT: create one); a queued send keeps the chat it was typed in. */
+    private fun dispatch(text: String, atts: List<Attachment>, target: String = activeId.value ?: NO_CHAT) {
+        launchGen(target) {
+            val id = target.takeIf { it != NO_CHAT }
+                ?: c.chats.create(c.engine.state.value.modelOrNull?.id).id.also { newId ->
+                    if (activeId.value == null) handle[KEY_ACTIVE] = newId
+                    genJobs.remove(NO_CHAT)?.let { genJobs[newId] = it }   // re-key so Stop in the new chat finds it
+                }
+            genStates.update { it - target }
             c.chats.appendUser(id, text, atts)
             if (_pending.value == atts) { _pending.value = emptyList(); savePending() }
             run(id)
@@ -216,7 +262,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     fun regenerate() {
         if (!canStart()) return
         val id = activeId.value ?: return
-        genJob = viewModelScope.launch {
+        launchGen(id) {
             val last = c.chats.messagesOnce(id).lastOrNull { it.role == ChatRepository.ROLE_ASSISTANT }
             if (last != null) c.chats.truncateFrom(id, last.orderIndex)
             run(id)
@@ -227,26 +273,29 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     fun editAndResend(messageId: String, newText: String) {
         if (!canStart()) return
         val id = activeId.value ?: return
-        genJob = viewModelScope.launch {
-            val msg = c.chats.message(messageId) ?: return@launch
+        launchGen(id) {
+            val msg = c.chats.message(messageId) ?: return@launchGen
             c.chats.truncateFrom(id, msg.orderIndex)
             c.chats.appendUser(id, newText, msg.images)
             run(id)
         }
     }
 
+    /** Stop for the ACTIVE chat only: other chats keep their own generation (and their own Stop). */
     fun cancel() {
-        pendingSend = null
         val id = activeId.value ?: NO_CHAT
-        if (gen.value is GenState.Queued) setGen(id, GenState.Idle)
-        genJob?.cancel()
+        if (gen.value is GenState.Queued) {
+            setGen(id, GenState.Idle)
+            if (pendingSend?.target == id) pendingSend = null
+        }
+        genJobs.remove(id)?.cancel()
     }
 
     private fun canStart(): Boolean {
         val s = c.engine.state.value
-        if (gen.value.isBusy) { appVmRef?.notice("Stop the current answer first"); return false }
-        if (imageBusy.value) { appVmRef?.notice("Wait for the image to finish first"); return false }
-        if (s is EngineState.Idle || s is EngineState.Error || s is EngineState.Loading) { appVmRef?.notice("Choose a model first"); return false }
+        if (gen.value.isBusy) { appVmRef?.notice(S.stopCurrentAnswer); return false }
+        if (imageBusy.value) { appVmRef?.notice(S.waitForImageFirst); return false }
+        if (s is EngineState.Idle || s is EngineState.Error || s is EngineState.Loading) { appVmRef?.notice(S.chooseModelFirst); return false }
         return true
     }
 
@@ -255,7 +304,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     private suspend fun run(conversationId: String) {
         val settings = c.prefs.settings.value
         val loaded: LoadedModel = c.engine.state.value.loadedAny
-            ?: run { setGen(conversationId, GenState.Error("Choose a model first")); return }
+            ?: run { setGen(conversationId, GenState.Error(S.chooseModelFirst)); return }
         val model = loaded.model
         val catalog = model.catalog
         val thinking = catalog?.thinking ?: ThinkingSpec()
@@ -306,7 +355,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         setGen(conversationId, GenState.Compacting)
                         val result = compactor(loaded, params, detail).compact(conversationId, systemPrompt, nCtx, reserve)
                         if (result != null) {
-                            if (result.droppedMaterial > 0) appVmRef?.notice("${result.droppedMaterial} oldest messages did not fit the summary")
+                            if (result.droppedMaterial > 0) appVmRef?.notice(S.oldestMessagesDropped(result.droppedMaterial))
                             history = c.chats.messagesOnce(conversationId)
                             view = MemoryView.of(history)
                             parts().let { (sys, m0, im) -> system = sys; messages0 = m0; images = im }
@@ -353,7 +402,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
                         stream.close()
                         setGen(conversationId, GenState.Idle)
                     }
-                    GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error("This message alone exceeds the model's memory. Shorten it or start a new chat.")) }
+                    GenerationEvent.NeedsTruncation -> { stream.close(); setGen(conversationId, GenState.Error(S.messageExceedsContext)) }
                     is GenerationEvent.Error -> {
                         assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
                         stream.close()
@@ -374,7 +423,12 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         } catch (e: Exception) {
             stream.close()
             assistantId?.let { c.chats.updateAssistant(it, stream.textStr, stream.reasoningOrNull(), errorStats(model.id)) }
-            setGen(conversationId, GenState.Error(e.message ?: "Generation failed"))
+            setGen(conversationId, GenState.Error(e.message ?: S.generationFailed))
+        } finally {
+            // Every orderly end of the turn (Done, Error, NeedsTruncation, Stop, exception) reached Kotlin, so the
+            // native side did not die: disarm the crash-loop guard. Only a real process death leaves it set (5.5).
+            // markFirstTurnOk launches on appVm.viewModelScope and is a no-op when the guard is already clear.
+            appVm.markFirstTurnOk()
         }
     }
 
@@ -395,9 +449,9 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     fun compactNow() {
         if (!canStart()) return
         val id = activeId.value ?: return
-        genJob = viewModelScope.launch {
+        launchGen(id) {
             val r = runCompaction(id, keepTurns = ContextManager.COMPACT_KEEP_TURNS)
-            if (r is CompactOutcome.Nothing) appVmRef?.notice("Nothing to compact yet")
+            if (r is CompactOutcome.Nothing) appVmRef?.notice(S.nothingToCompact)
         }
     }
 
@@ -408,17 +462,19 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     fun carryOverSummary() {
         if (!canStart()) return
         val id = activeId.value ?: return
-        genJob = viewModelScope.launch {
+        launchGen(id) {
             val outcome = runCompaction(id, keepTurns = 0)
-            if (outcome is CompactOutcome.Nothing) appVmRef?.notice("Nothing to carry over")
-            val summary = (outcome as? CompactOutcome.Done)?.result?.summary ?: return@launch
+            if (outcome is CompactOutcome.Nothing) appVmRef?.notice(S.nothingToCarryOver)
+            val summary = (outcome as? CompactOutcome.Done)?.result?.summary ?: return@launchGen
             val pending = c.chats.messagesOnce(id).lastOrNull()?.takeIf { it.role == ChatRepository.ROLE_USER && it.orderIndex > summary.compactedThrough }
-            val title = conversations.value.firstOrNull { it.id == id }?.displayTitle ?: "Chat"
+            val title = conversations.value.firstOrNull { it.id == id }?.displayTitle ?: S.chatFallbackTitle
             val fresh = c.chats.create(c.engine.state.value.modelOrNull?.id)
-            c.chats.setTitle(fresh.id, "Continued · $title")
+            c.chats.setTitle(fresh.id, S.continuedTitle(title))
             c.chats.appendSummary(fresh.id, summary.content, compactedThrough = -1, compactedCount = summary.compactedCount)
             stopFull.update { it - id }
             handle[KEY_ACTIVE] = fresh.id
+            // The answer now belongs to the new chat: re-key so Stop there cancels it.
+            genJobs.remove(id)?.let { genJobs[fresh.id] = it }
             if (pending != null) { c.chats.appendUser(fresh.id, pending.content, pending.images); run(fresh.id) }
         }
     }
@@ -430,7 +486,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
             c.prefs.setContextPolicy(ContextPolicy.ROLLING)
             if (id == null) return@launch
             stopFull.update { it - id }
-            if (canStart() && c.chats.messagesOnce(id).lastOrNull()?.role == ChatRepository.ROLE_USER) genJob = viewModelScope.launch { run(id) }
+            if (canStart() && c.chats.messagesOnce(id).lastOrNull()?.role == ChatRepository.ROLE_USER) launchGen(id) { run(id) }
         }
     }
 
@@ -443,7 +499,7 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
     /** Shared by compactNow / carryOverSummary: Compacting state, one compaction, back to Idle (Error on failure). */
     private suspend fun runCompaction(id: String, keepTurns: Int): CompactOutcome {
         val settings = c.prefs.settings.value
-        val loaded = c.engine.state.value.loadedAny ?: run { setGen(id, GenState.Error("Choose a model first")); return CompactOutcome.Failed }
+        val loaded = c.engine.state.value.loadedAny ?: run { setGen(id, GenState.Error(S.chooseModelFirst)); return CompactOutcome.Failed }
         val params = appVm.effectiveParams()
         val thinkingOn = settings.thinking && (loaded.model.catalog?.thinking?.hasTags == true)
         val nCtx = loaded.context.nCtx
@@ -451,14 +507,14 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         return try {
             val r = compactor(loaded, params, settings.imageDetail).compact(id, settings.systemPrompt.takeIf { it.isNotBlank() }, nCtx,
                 c.contextManager.reserveFor(params, nCtx, thinkingOn), keepTurns)
-            if (r != null && r.droppedMaterial > 0) appVmRef?.notice("${r.droppedMaterial} oldest messages did not fit the summary")
+            if (r != null && r.droppedMaterial > 0) appVmRef?.notice(S.oldestMessagesDropped(r.droppedMaterial))
             setGen(id, GenState.Idle)
             if (r == null) CompactOutcome.Nothing else CompactOutcome.Done(r)
         } catch (e: CancellationException) {
             withContext(NonCancellable) { setGen(id, GenState.Idle) }
             throw e
         } catch (e: Exception) {
-            setGen(id, GenState.Error(e.message ?: "Compaction failed"))
+            setGen(id, GenState.Error(e.message ?: S.compactionFailed))
             CompactOutcome.Failed
         }
     }
