@@ -425,6 +425,10 @@ void Engine::context_free() {
         llama_sampler_free(smpl_);
         smpl_ = nullptr;
     }
+    if (grmr_) {
+        llama_sampler_free(grmr_);
+        grmr_ = nullptr;
+    }
     if (batch_.token) {
         llama_batch_free(batch_);
         batch_ = {};
@@ -539,14 +543,16 @@ bool Engine::sampler_set(const SamplingParams & s) {
     llama_sampler * chain = llama_sampler_chain_init(cpar);
     // Built conditionally like common_sampler_init: a no-op sampler still walks the whole candidate
     // array (150-250k entries) per token.
+    // The grammar stays outside the chain (grmr_): generate_start replays prompt tokens into smpl_ for the
+    // penalty/DRY history, and a prompt token that does not fit the grammar would throw / GGML_ABORT.
+    llama_sampler * g = nullptr;
     if (!s.grammar.empty()) {
-        llama_sampler * g = llama_sampler_init_grammar(vocab_, s.grammar.c_str(), "root");
+        g = llama_sampler_init_grammar(vocab_, s.grammar.c_str(), "root");
         if (!g) {
             llama_sampler_free(chain);
             set_error("invalid grammar");
             return false;
         }
-        llama_sampler_chain_add(chain, g);
     }
     const bool has_penalties = s.repeat_last_n != 0 &&
         (s.repeat_penalty != 1.0f || s.freq_penalty != 0.0f || s.presence_penalty != 0.0f);
@@ -554,10 +560,12 @@ bool Engine::sampler_set(const SamplingParams & s) {
         llama_sampler_chain_add(chain, llama_sampler_init_penalties(llama_vocab_n_tokens(vocab_), s.repeat_last_n,
                                                                     s.repeat_penalty, s.freq_penalty, s.presence_penalty));
     }
-    if (s.dry_multiplier > 0.0f) {
+    // -1 => "whole context" is a common/ convention; llama_sampler_init_dry clamps it to 0 and returns a no-op.
+    const int dry_last_n = s.dry_penalty_last_n < 0 ? (int) llama_n_ctx(ctx_) : s.dry_penalty_last_n;
+    if (s.dry_multiplier > 0.0f && dry_last_n != 0) {
         static const char * breakers[] = { "\n", ":", "\"", "*" };   // llama.cpp common defaults
         llama_sampler_chain_add(chain, llama_sampler_init_dry(vocab_, s.dry_multiplier, s.dry_base, s.dry_allowed_length,
-                                                              s.dry_penalty_last_n, breakers, 4));
+                                                              dry_last_n, breakers, 4));
     }
     if (s.temp <= 0.0f) {
         llama_sampler_chain_add(chain, llama_sampler_init_greedy());
@@ -581,6 +589,10 @@ bool Engine::sampler_set(const SamplingParams & s) {
         llama_sampler_free(smpl_);
     }
     smpl_ = chain;
+    if (grmr_) {
+        llama_sampler_free(grmr_);
+    }
+    grmr_ = g;
     return true;
 }
 

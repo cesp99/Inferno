@@ -5,6 +5,7 @@
 // same worker thread); ScopedEnv attaches/detaches when it is not.
 #include <jni.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -44,11 +45,40 @@ private:
     bool attached_ = false;
 };
 
+// jstring -> UTF-8 via the UTF-16 view. GetStringUTFChars would hand us modified UTF-8 (CESU-8 surrogate
+// pairs for U+10000+, C0 80 for NUL), which the CLIP byte-level BPE would tokenise differently from sd-cli.
 std::string jstring_to_utf8(JNIEnv* env, jstring s) {
-    if (!s) return {};
-    const char* c = env->GetStringUTFChars(s, nullptr);
-    std::string out = c ? c : "";
-    if (c) env->ReleaseStringUTFChars(s, c);
+    std::string out;
+    if (!s) return out;
+    const jsize n = env->GetStringLength(s);
+    const jchar* u = env->GetStringChars(s, nullptr);
+    if (!u) return out;
+    out.reserve(static_cast<size_t>(n) * 3);
+    for (jsize i = 0; i < n; i++) {
+        uint32_t cp = u[i];
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < n && u[i + 1] >= 0xDC00 && u[i + 1] <= 0xDFFF) {
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (u[i + 1] - 0xDC00);
+            i++;
+        } else if (cp >= 0xD800 && cp <= 0xDFFF) {
+            cp = 0xFFFD;  // lone surrogate
+        }
+        if (cp < 0x80) {
+            out += static_cast<char>(cp);
+        } else if (cp < 0x800) {
+            out += static_cast<char>(0xC0 | (cp >> 6));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else if (cp < 0x10000) {
+            out += static_cast<char>(0xE0 | (cp >> 12));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        } else {
+            out += static_cast<char>(0xF0 | (cp >> 18));
+            out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (cp & 0x3F));
+        }
+    }
+    env->ReleaseStringChars(s, u);
     return out;
 }
 
