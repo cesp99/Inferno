@@ -114,7 +114,7 @@ class ContextManagerPlanTest {
         val plan = ContextManager(AnalyticEngine()).plan(gemma, settings, EngineTestFixtures.cpu({ 3900 * MB }))
         assertFalse(plan.config.swaFull)
         assertEquals(3, plan.config.nThreads); assertEquals(3, plan.config.nThreadsBatch); assertFalse(plan.config.bigCoresOnly); assertEquals(0, plan.config.poll)
-        assertEquals(1024, plan.config.nBatch)              // max(512, HIGH 1024, 560) rounded to 64
+        assertEquals(576, plan.config.nBatch)               // max(512, catalog 560) rounded to 64; HIGH's 1024 is not a token count any projector emits
         assertEquals(plan.config.nBatch, plan.config.nUbatch)
         val qwen = ContextManager(AnalyticEngine()).plan(EngineTestFixtures.local(), SettingsState(), EngineTestFixtures.cpu({ 3900 * MB }))
         assertTrue(qwen.config.swaFull)

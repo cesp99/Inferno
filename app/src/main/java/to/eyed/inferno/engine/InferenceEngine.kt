@@ -39,7 +39,7 @@ import to.eyed.inferno.models.ThinkingSpec
  * per turn (and steps it down mid-turn on the cheap llama_set_n_threads path).
  *
  * [context] is optional (null in JVM tests); with it the engine registers on ProcessLifecycleOwner and drives
- * [EngineService] (foreground service only while a generation runs in the background).
+ * [EngineService] (foreground service only while a text turn or an image run is active in the background).
  */
 class InferenceEngine internal constructor(
     private val cpu: CpuTopology,
@@ -84,9 +84,13 @@ class InferenceEngine internal constructor(
     @Volatile private var backendReady = false
     @Volatile private var appliedThreads = 0          // thread count the live context runs with (thermal-adjusted)
     private var mmprojThreads = -1          // thread count the resident projector was created with (4.2)
-    private var mmprojDetail: ImageDetail? = null
+    private var mmprojMaxTokens = -1        // image_max_tokens the resident projector was created with (residency key)
+    /** Image detail the last load / turn asked for: countPromptTokens (fit) must build the same projector generate() will use. */
+    private var requestedDetail: ImageDetail = ImageDetail.BALANCED
 
     @Volatile private var generating = false
+    @Volatile private var imageJobActive = false
+    @Volatile private var imageJobTitle: String? = null
     @Volatile private var foreground = true
     @Volatile private var serviceStarted = false
 
@@ -124,8 +128,11 @@ class InferenceEngine internal constructor(
     suspend fun load(model: LocalModel, config: ContextConfig, imageDetail: ImageDetail, useMmap: Boolean, visionAllowed: Boolean): LoadedModel {
         beforeLoad?.invoke()
         return EngineJob.withJob("llm-load") {
-            withContext(NonCancellable + engine) { unloadLocked() }
+            // Keep the no_alloc twin ContextManager.plan() just built: the budget gate below hits the cache instead of
+            // re-parsing the GGUF (~1 s); native model_load drops that entry once the real model supersedes it.
+            withContext(NonCancellable + engine) { unloadLocked(clearEstimates = false) }
             _state.value = EngineState.Loading(model, null, LoadPhase.WEIGHTS)
+            requestedDetail = imageDetail
             val t0 = System.nanoTime()
             var lowMemory = false
             coroutineScope {
@@ -205,7 +212,11 @@ class InferenceEngine internal constructor(
             ctx = native.contextCreate(model, config.toNative())
             if (ctx == 0L) {
                 val msg = nativeError("Could not create the context")
-                _state.value = EngineState.Suspended(l.copy(context = config), visionReleased = !native.mmprojLoaded(model))
+                // The old context is gone (freed above) and resumeLocked() will recreate `current`'s config, not the
+                // refused one: publish exactly that so fit() and the chip never advertise a size the engine cannot run.
+                _kvUsed.value = 0
+                appliedThreads = 0
+                _state.value = EngineState.Suspended(l, visionReleased = !native.mmprojLoaded(model))
                 throw EngineException(msg)
             }
             appliedThreads = config.nThreads
@@ -267,12 +278,21 @@ class InferenceEngine internal constructor(
         EngineJob.withJob("llm-count") {
             withContext(engine) {
                 val l = current ?: throw EngineException("No model loaded")
-                if (ctx == 0L) resumeLocked()
-                if (images.isNotEmpty()) ensureVisionLocked(mmprojDetail ?: ImageDetail.BALANCED)
-                val n = native.promptTokenCount(ctx, messages.toNative(), images.map { it.copy(rgb = null) }.toNative())
-                if (n < 0) throw EngineException(nativeError("Could not count tokens"))
-                _state.value = EngineState.Ready(current ?: l)
-                n
+                // The `current == null` check stays outside the try: restoreStateLocked() must never publish Idle for
+                // a model that was never loaded. Inside, resume / projector load / count can each fail and the state
+                // must still leave Loading (generate() and bench() do the same), or every consumer waits forever.
+                try {
+                    if (ctx == 0L) resumeLocked()
+                    // Same thread count the turn will run with, so the projector is not rebuilt twice per thermal change.
+                    thermal.refreshHeadroom()
+                    applyThermalThreadsLocked(l.context.nThreads)
+                    if (images.isNotEmpty()) ensureVisionLocked(requestedDetail)
+                    val n = native.promptTokenCount(ctx, messages.toNative(), images.map { it.copy(rgb = null) }.toNative())
+                    if (n < 0) throw EngineException(nativeError("Could not count tokens"))
+                    n
+                } finally {
+                    restoreStateLocked()
+                }
             }
         }
 
@@ -285,9 +305,15 @@ class InferenceEngine internal constructor(
         withContext(engine) {
             val l = current ?: return@withContext
             if (!l.model.hasVision) return@withContext
-            if (ctx == 0L) resumeLocked()
-            ensureVisionLocked(imageDetail)
-            _state.value = EngineState.Ready(current ?: l)
+            requestedDetail = imageDetail
+            try {
+                if (ctx == 0L) resumeLocked()
+                thermal.refreshHeadroom()
+                applyThermalThreadsLocked(l.context.nThreads)
+                ensureVisionLocked(imageDetail)
+            } finally {
+                restoreStateLocked()
+            }
         }
     }
 
@@ -337,11 +363,13 @@ class InferenceEngine internal constructor(
             // Collector cancellation must reach the blocked native call: this watcher runs off the engine thread.
             val watcher = launch { try { awaitCancellation() } finally { if (!finished) native.cancel() } }
             var lowMemory = false
+            var tooHot = false
             var watchdogJob: Job? = null
             generating = true
-            if (!foreground) startService()
+            syncService()
             try {
                 val l = current ?: throw EngineException("No model loaded")
+                requestedDetail = imageDetail
                 val gemma4 = l.templateName == "gemma4"
                 // Gemma 4 has no assistant-side switch: WP1's formatter enables thinking with "<|think|>" at the start of the system message.
                 val assistantPrefix = if (gemma4) null else if (thinkingEnabled) thinking.enablePrefix else thinking.disablePrefix
@@ -357,11 +385,14 @@ class InferenceEngine internal constructor(
                         if (ctx != 0L) native.samplerSet(ctx, params.toNativeFloats(), params.toNativeInts(), null)
                     }
                     if (ctx == 0L) { send(GenerationEvent.Resuming(LoadPhase.CONTEXT)); resumeLocked() }
+                    // Thread count first, from a fresh headroom sample (a stale one from the previous turn would decide
+                    // this whole turn), and before the projector check so mtmd is built with the count the turn runs at.
+                    thermal.refreshHeadroom()
+                    applyThermalThreadsLocked(l.context.nThreads)
                     if (images.isNotEmpty()) {
                         validatePromptImages(l.model, images, imageDetail)
                         if (!l.model.hasVision) throw EngineException("This model has no vision")
                         if (!l.visionAllowed) throw EngineException(NO_MEMORY_FOR_IMAGES)
-                        if (thermal.pauseImageEncoding()) throw EngineException(PHONE_TOO_HOT)
                         if (!native.mmprojLoaded(model)) send(GenerationEvent.Resuming(LoadPhase.VISION))
                         ensureVisionLocked(imageDetail)
                     } else if (native.mmprojLoaded(model)) {
@@ -371,19 +402,27 @@ class InferenceEngine internal constructor(
                     val live = current!!.copy(visionResident = native.mmprojLoaded(model))
                     current = live
                     _state.value = EngineState.Generating(live, conversationId)
-                    applyThermalThreadsLocked(l.context.nThreads)
                     thermal.beginGeneration(ctx, perfPreset, ThermalGovernor.targetTps(live))
 
                     val encoderPeak = if (images.isNotEmpty()) (l.estimate?.encoderPeakBytes ?: 0L) else 0L
                     val avail = cpu.availRamBytes() - encoderPeak
                     val rc = native.generateStart(ctx, prompt.toNative(), images.toNative(), nPredict,
                         assistantPrefix?.toByteArray(Charsets.UTF_8), avail) { done, total, phase ->
-                        trySend(GenerationEvent.Prefill(done, total, phase == Phase.IMAGE))
-                        !lowMemory
+                        val encoding = phase == Phase.IMAGE
+                        // SEVERE pauses only the encode itself: native calls back right before each non-cached image
+                        // (after a checkpoint, so the abort leaves the KV consistent); cached images and text-only
+                        // follow-ups in an image chat never get here and keep working on a hot phone.
+                        if (encoding && thermal.pauseImageEncoding()) tooHot = true
+                        trySend(GenerationEvent.Prefill(done, total, encoding))
+                        !lowMemory && !tooHot
                     }
                     when {
                         rc == 0 -> streamTokens(parser, l, ::terminal) { lowMemory }
-                        rc == 1 -> terminal(if (lowMemory) GenerationEvent.Error(NOT_ENOUGH_MEMORY) else GenerationEvent.Done(FinishReason.CANCELLED, statsLocked(l)))
+                        rc == 1 -> terminal(when {
+                            lowMemory -> GenerationEvent.Error(NOT_ENOUGH_MEMORY)
+                            tooHot -> GenerationEvent.Error(PHONE_TOO_HOT)
+                            else -> GenerationEvent.Done(FinishReason.CANCELLED, statsLocked(l))
+                        })
                         rc == 2 -> terminal(GenerationEvent.NeedsTruncation)
                         rc == -4 -> terminal(GenerationEvent.Error("This model produces more image tokens than one batch allows; lower Image detail"))
                         rc == -5 -> terminal(GenerationEvent.Error("Not enough memory to read this image"))
@@ -410,7 +449,7 @@ class InferenceEngine internal constructor(
                     }
                 }
                 generating = false
-                stopService()
+                syncService()
             }
         }
     }
@@ -467,9 +506,26 @@ class InferenceEngine internal constructor(
     @Suppress("DEPRECATION")   // RUNNING_* levels are still delivered on API 33 (minSdk); 34+ only sends UI_HIDDEN/BACKGROUND
     fun onTrimMemory(level: Int, keepModelLoaded: Boolean) {
         when {
-            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !keepModelLoaded -> scope.launch { runCatching { unload() } }
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND && !keepModelLoaded -> unloadIfIdle()
             level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL || level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> releaseForMemory(critical = true)
             level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> releaseForMemory(critical = false)
+        }
+    }
+
+    /**
+     * BACKGROUND trim with keepModelLoaded=false: unload only when no job runs. A trim must never cancel a running
+     * generation or unload behind a load the user is waiting on (5.2: nothing is freed while a job runs); [unload]
+     * keeps its cancel-first behaviour for its explicit callers (model switch, image generation).
+     */
+    private fun unloadIfIdle() {
+        scope.launch {
+            if (!EngineJob.tryAcquire("llm-unload")) return@launch
+            try {
+                withContext(NonCancellable + engine) { unloadLocked() }
+                _state.value = EngineState.Idle
+            } finally {
+                EngineJob.release("llm-unload")
+            }
         }
     }
 
@@ -493,24 +549,36 @@ class InferenceEngine internal constructor(
         }
     }
 
-    /** EngineService policy: started only when the app goes to the background mid-generation, stopped otherwise. */
+    /** EngineService policy: started only when the app goes to the background mid-job, stopped otherwise. */
     fun onAppForeground(foreground: Boolean) {
         this.foreground = foreground
-        if (!foreground && generating) startService() else if (foreground) stopService()
+        syncService()
     }
 
-    private fun startService() {
-        val c = context ?: return
-        if (serviceStarted) return
-        serviceStarted = true
-        EngineService.start(c, current?.model?.displayName ?: "Inferno")
+    /**
+     * EngineCoordinator (imagegen): an image run is starting / ending. The same keep-alive policy as a text turn
+     * applies (12.5: the image job reuses EngineService with [EngineService.HEADING_IMAGE]); the two jobs are
+     * mutually exclusive on the native side, so one flag per job and one service is enough.
+     */
+    override fun onImageJob(active: Boolean, modelName: String) {
+        imageJobTitle = if (active) modelName else null
+        imageJobActive = active
+        syncService()
     }
 
-    private fun stopService() {
+    /** Foreground service up exactly while (a text turn or an image run is active) AND the app is in the background. */
+    @Synchronized
+    private fun syncService() {
         val c = context ?: return
-        if (!serviceStarted) return
-        serviceStarted = false
-        EngineService.stop(c)
+        val want = !foreground && (generating || imageJobActive)
+        if (want && !serviceStarted) {
+            serviceStarted = true
+            if (imageJobActive) EngineService.start(c, imageJobTitle ?: "Inferno", EngineService.HEADING_IMAGE)
+            else EngineService.start(c, current?.model?.displayName ?: "Inferno")
+        } else if (!want && serviceStarted) {
+            serviceStarted = false
+            EngineService.stop(c)
+        }
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -550,21 +618,27 @@ class InferenceEngine internal constructor(
         EngineLog.i(TAG, "resumed context nCtx=${l.context.nCtx}")
     }
 
-    /** Projector resident with the current thread count (4.2: mtmd threads are fixed at init, so re-create on change). */
+    /**
+     * Projector resident with the current thread count (4.2: mtmd threads are fixed at init, so re-create on change).
+     * Residency is keyed on what mmprojLoad actually received (threads, image_max_tokens), not on the ImageDetail
+     * enum: BALANCED and HIGH clamp to the same catalog cap for most rows, so switching between them must not
+     * rebuild the 0.5-1.1 GB projector. No thermal gate here: the projector is needed for mtmd_tokenize even when
+     * every image is already in the KV; the encode itself is refused in generate()'s progress callback.
+     */
     private fun ensureVisionLocked(detail: ImageDetail) {
         val l = current ?: throw EngineException("No model loaded")
         val path = l.model.mmprojPath ?: throw EngineException("This model has no vision")
         if (!l.visionAllowed) throw EngineException(NO_MEMORY_FOR_IMAGES)
-        if (thermal.pauseImageEncoding()) throw EngineException(PHONE_TOO_HOT)
         val threads = if (appliedThreads > 0) appliedThreads else l.context.nThreads
-        if (native.mmprojLoaded(model) && mmprojThreads == threads && mmprojDetail == detail) return
+        val maxTok = imageMaxTokens(l.model, detail)
+        if (native.mmprojLoaded(model) && mmprojThreads == threads && mmprojMaxTokens == maxTok) return
         if (native.mmprojLoaded(model)) native.mmprojFree(model)
         _state.value = EngineState.Loading(l.model, null, LoadPhase.VISION)
-        val ok = native.mmprojLoad(model, path, threads, imageMinTokens(l.model), imageMaxTokens(l.model, detail)) { done, total, _ ->
+        val ok = native.mmprojLoad(model, path, threads, imageMinTokens(l.model), maxTok) { done, total, _ ->
             _state.value = EngineState.Loading(l.model, if (total > 0) done.toFloat() / total else null, LoadPhase.VISION); true
         }
-        if (!ok) { mmprojThreads = -1; throw EngineException(nativeError("Could not load the vision projector")) }
-        mmprojThreads = threads; mmprojDetail = detail
+        if (!ok) { mmprojThreads = -1; mmprojMaxTokens = -1; throw EngineException(nativeError("Could not load the vision projector")) }
+        mmprojThreads = threads; mmprojMaxTokens = maxTok
         updateCurrent(l.copy(visionResident = true))
     }
 
@@ -591,13 +665,13 @@ class InferenceEngine internal constructor(
         _state.value = if (ctx != 0L) EngineState.Ready(updated) else EngineState.Suspended(updated, visionReleased = !updated.visionResident)
     }
 
-    private fun unloadLocked(error: String? = null) {
+    private fun unloadLocked(error: String? = null, clearEstimates: Boolean = true) {
         if (ctx != 0L) { native.contextFree(ctx); ctx = 0L }
         if (model != 0L) { native.modelFree(model); model = 0L }
-        if (backendReady) native.estimateCacheClear()
+        if (clearEstimates && backendReady) native.estimateCacheClear()
         val prev = current
         current = null
-        appliedThreads = 0; mmprojThreads = -1; mmprojDetail = null
+        appliedThreads = 0; mmprojThreads = -1; mmprojMaxTokens = -1; requestedDetail = ImageDetail.BALANCED
         _kvUsed.value = 0
         if (error != null) _state.value = EngineState.Error(error, prev?.model)
     }

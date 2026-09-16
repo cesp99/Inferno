@@ -34,8 +34,10 @@ class InferenceEngineTest {
     private val native = FakeNative()
     private var avail = 4L * GB
     private var threads = 4
+    private var tooHot = false
     private val thermal = object : ThermalGovernor(null, scope, workerTids = { IntArray(0) }) {
         override fun threadsFor(requested: Int): Int = minOf(requested, threads)
+        override fun pauseImageEncoding(): Boolean = tooHot
     }
     private val engine = InferenceEngine(EngineTestFixtures.cpu({ avail }), thermal, scope, null, native)
     private val model = EngineTestFixtures.local()
@@ -238,5 +240,91 @@ class InferenceEngineTest {
         assertTrue(native.calls.containsAll(listOf("contextFree", "modelFree", "estimateCacheClear")))
         delay(50)
         assertEquals(0, native.cancelCount.get())                     // no gratuitous cancel when nothing was running
+    }
+
+    @Test fun countPromptTokensLeavesLoadingWhenTheProjectorFailsAfterAResume() = runBlocking {
+        load()
+        engine.releaseForMemory(critical = true)
+        withTimeout(2_000) { engine.state.first { it is EngineState.Suspended } }
+        native.mmprojLoadResult = false; native.errorText = "mtmd_init failed: projector"
+        val img = PromptImage("img1", 448, 336, null)
+        try {
+            engine.countPromptTokens(listOf(PromptMessage("user", "Hi", listOf("img1"))), listOf(img)); fail("expected EngineException")
+        } catch (e: EngineException) { assertTrue(e.message!!.contains("projector")) }
+        // The context was recreated by the resume: the engine is Ready (not stranded in Loading) and usable.
+        assertTrue("state=${engine.state.value}", engine.state.value is EngineState.Ready)
+        assertFalse((engine.state.value as EngineState.Ready).loaded.visionResident)
+        native.mmprojLoadResult = true
+        assertEquals(1, gen().toList().terminals().size)
+    }
+
+    @Test fun severeThermalRefusesOnlyTheImageEncodeItself() = runBlocking {
+        load()
+        tooHot = true
+        // Text-only turns and token counting keep working on a hot phone (the projector load is not an encode).
+        assertTrue(gen().toList().terminals().single() is GenerationEvent.Done)
+        val img = PromptImage("img1", 448, 336, ByteArray(448 * 336 * 3))
+        engine.countPromptTokens(listOf(PromptMessage("user", "Hi", listOf("img1"))), listOf(img.copy(rgb = null)))
+        assertTrue(native.calls.any { it.startsWith("mmprojLoad") })
+        // A turn that has to encode a new image is refused at the encode callback and ends with one Error.
+        val events = gen(images = listOf(img)).toList()
+        assertEquals(listOf<GenerationEvent>(GenerationEvent.Error("Phone is too hot to read images right now")), events.terminals())
+        assertTrue(engine.state.value is EngineState.Ready)
+        tooHot = false
+        assertTrue(gen(images = listOf(img)).toList().terminals().single() is GenerationEvent.Done)
+    }
+
+    @Test fun backgroundTrimNeverCancelsARunningTurnAndUnloadsOnceIdle() = runBlocking {
+        load(); native.blockUntilCancel = true
+        val job = launch { gen().toList() }
+        withTimeout(2_000) { engine.state.first { it is EngineState.Generating } }
+        engine.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND, keepModelLoaded = false)
+        delay(200)
+        assertEquals(0, native.cancelCount.get())
+        assertTrue(engine.state.value is EngineState.Generating)
+        job.cancel(); withTimeout(5_000) { job.join() }
+        withTimeout(2_000) { engine.state.first { it is EngineState.Ready } }
+        // Idle now: the same trim unloads.
+        engine.onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND, keepModelLoaded = false)
+        withTimeout(2_000) { engine.state.first { it is EngineState.Idle } }
+        assertTrue(native.calls.contains("modelFree"))
+    }
+
+    @Test fun reconfigureFailurePublishesTheConfigTheEngineWillActuallyResume() = runBlocking {
+        load()
+        native.contextCreateResult = 0L
+        try { engine.reconfigure(config.copy(nCtx = 32768)); fail("expected EngineException") } catch (e: EngineException) { }
+        val s = engine.state.value as EngineState.Suspended
+        assertEquals(8192, s.loaded.context.nCtx)                      // not the refused 32k
+        assertEquals(0, engine.kvUsed.value)
+        native.contextCreateResult = 2L
+        val events = gen().toList()
+        assertEquals(GenerationEvent.Resuming(LoadPhase.CONTEXT), events.first())
+        assertTrue(native.calls.last { it.startsWith("contextCreate") } == "contextCreate(nCtx=8192,threads=4)")
+        assertEquals(8192, (engine.state.value as EngineState.Ready).loaded.context.nCtx)
+    }
+
+    @Test fun projectorIsBuiltOnceWhenCountAndGenerateAgreeOnTheEffectiveTokens() = runBlocking {
+        load()
+        val img = PromptImage("img1", 448, 336, ByteArray(448 * 336 * 3))
+        // fit() counts first (placeholder image), then the turn runs with HIGH detail: min(1024, catalog 512) == 512 both times.
+        engine.countPromptTokens(listOf(PromptMessage("user", "Hi", listOf("img1"))), listOf(img.copy(rgb = null)))
+        engine.generate("conv-1", listOf(PromptMessage("user", "Hi", listOf("img1"))), listOf(img), GenerationParams(), EngineTestFixtures.qwenThinking, false, ImageDetail.HIGH).toList()
+        assertEquals(1, native.calls.count { it.startsWith("mmprojLoad") })
+        assertEquals(0, native.calls.count { it == "mmprojFree" })
+        // A thermal step-down between two image turns rebuilds the projector once, at the count the turn runs with.
+        threads = 3
+        engine.countPromptTokens(listOf(PromptMessage("user", "Hi", listOf("img1"))), listOf(img.copy(rgb = null)))
+        gen(images = listOf(img)).toList()
+        assertEquals(listOf("mmprojLoad(threads=4,maxTok=512)", "mmprojLoad(threads=3,maxTok=512)"), native.calls.filter { it.startsWith("mmprojLoad") })
+    }
+
+    @Test fun loadKeepsThePlannersEstimateCacheAndUnloadClearsIt() = runBlocking {
+        load()
+        val before = native.calls.count { it == "estimateCacheClear" }
+        load()                                                        // model switch / reloadCurrent: no clear before the budget gate
+        assertEquals(before, native.calls.count { it == "estimateCacheClear" })
+        engine.unload()
+        assertEquals(before + 1, native.calls.count { it == "estimateCacheClear" })
     }
 }

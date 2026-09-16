@@ -38,6 +38,8 @@ class ImageGenRepositoryTest {
 
     /** Records every cross-seam call in order so the single-job protocol can be asserted. */
     private val calls = mutableListOf<String>()
+    /** Keep-alive bracket the coordinator sees (EngineService policy): "on:<model>" / "off:<model>". */
+    private val keepAlive = mutableListOf<String>()
 
     private inner class FakeEngine(
         var stepMs: Long = 2_000,
@@ -138,7 +140,10 @@ class ImageGenRepositoryTest {
         val repo = ImageGenRepository(
             engine = engine,
             files = files,
-            coordinator = { calls += "releaseLlm" },
+            coordinator = object : EngineCoordinator {
+                override suspend fun releaseForImageGen() { calls += "releaseLlm" }
+                override fun onImageJob(active: Boolean, modelName: String) { keepAlive += "${if (active) "on" else "off"}:$modelName" }
+            },
             jobGate = gate,
             store = store,
             etaStore = etaStore,
@@ -204,6 +209,33 @@ class ImageGenRepositoryTest {
         // The preview is carried over into the Decoding state.
         assertNotNull(gens.last().previewPng)
         assertTrue(gens.last().isDecoding)
+    }
+
+    @Test
+    fun keepAliveBracketsTheWholeRunIncludingCancelAndFailure() = runTest {
+        // Happy path: the coordinator is told before the job is taken (the wait for the LLM counts) and after release.
+        val h = harness()
+        h.repo.generate(ImageGenParams(DS.id, "a cat", steps = 4))
+        advanceTimeBy(100)
+        assertEquals(listOf("on:${DS.displayName}"), keepAlive)
+        advanceUntilIdle()
+        assertEquals(listOf("on:${DS.displayName}", "off:${DS.displayName}"), keepAlive)
+        assertFalse(h.gate.held)
+
+        // Cancel mid-run: the bracket still closes.
+        keepAlive.clear()
+        h.repo.generate(ImageGenParams(DS.id, "b", steps = 4))
+        advanceTimeBy(3_000)
+        h.repo.cancelAndJoin()
+        assertEquals(listOf("on:${DS.displayName}", "off:${DS.displayName}"), keepAlive)
+
+        // Engine failure: same.
+        keepAlive.clear()
+        val h2 = harness(engine = FakeEngine(failWith = "boom"))
+        h2.repo.generate(ImageGenParams(DS.id, "c"))
+        advanceUntilIdle()
+        assertEquals(ImageGenUiState.Error("boom"), h2.repo.state.value)
+        assertEquals(listOf("on:${DS.displayName}", "off:${DS.displayName}"), keepAlive)
     }
 
     @Test

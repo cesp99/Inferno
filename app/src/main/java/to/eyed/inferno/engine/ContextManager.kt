@@ -300,9 +300,15 @@ class ContextManager(private val engine: PlannerEngine) {
         fun imageEdgeCap(model: LocalModel, detail: ImageDetail): Int =
             minOf(detail.maxEdgePx, model.catalog?.maxImageEdgePx ?: IMPORT_MAX_IMAGE_EDGE_PX)
 
-        /** n_batch floor for a vision model: the largest image chunk it can emit must fit one ubatch. */
+        /**
+         * n_batch floor for a vision model: the largest image chunk it can emit must fit one ubatch. Dynamic-resolution
+         * projectors are clamped to min(detail, catalog cap) via image_max_tokens and fixed-tiling ones emit exactly the
+         * catalog total, so the catalog cap (imports: 1024) is the ceiling regardless of [ImageDetail]; sizing the
+         * batch on HIGH's 1024 would only double the compute buffer for tokens no projector produces.
+         */
+        @Suppress("UNUSED_PARAMETER")   // kept for source compatibility with the callers
         fun batchFor(model: LocalModel, detail: ImageDetail): Int =
-            if (!model.hasVision) 512 else roundUp64(maxOf(512, detail.maxTokens, model.catalog?.imageTokensMax ?: IMPORT_IMAGE_TOKENS_MAX))
+            if (!model.hasVision) 512 else roundUp64(maxOf(512, model.catalog?.imageTokensMax ?: IMPORT_IMAGE_TOKENS_MAX))
 
         fun roundUp64(n: Int): Int = (n + 63) / 64 * 64
         fun roundDown(n: Int, step: Int): Int = n / step * step

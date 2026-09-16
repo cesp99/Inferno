@@ -36,8 +36,8 @@ class KvTypeForTest {
         assertEquals(3400 * MB, ContextManager.budgetBytes(3912 * MB))
         assertEquals("<_media_> x", ContextManager.sanitize("<__media__> x"))
         assertEquals(512, ContextManager.batchFor(EngineTestFixtures.local(EngineTestFixtures.catalog(vision = false), vision = false), ImageDetail.HIGH))
-        // Vision: max(512, detail.maxTokens, catalog.imageTokensMax) rounded up to 64.
-        assertEquals(1024, ContextManager.batchFor(EngineTestFixtures.local(EngineTestFixtures.catalog(imageTokensMax = 512)), ImageDetail.HIGH))
+        // Vision: max(512, catalog.imageTokensMax) rounded up to 64; the detail setting never raises it (image_max_tokens clamps to the catalog cap).
+        assertEquals(512, ContextManager.batchFor(EngineTestFixtures.local(EngineTestFixtures.catalog(imageTokensMax = 512)), ImageDetail.HIGH))
         assertEquals(1088, ContextManager.batchFor(EngineTestFixtures.local(EngineTestFixtures.catalog(imageTokensMax = 1030)), ImageDetail.FAST))
         assertEquals(1024, ContextManager.batchFor(EngineTestFixtures.local(null, vision = true), ImageDetail.BALANCED))  // import with mmproj: conservative 1024
     }

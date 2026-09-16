@@ -123,6 +123,9 @@ class ImageGenRepository(
         steps: Int,
     ) {
         _state.value = ImageGenUiState.Loading
+        // Keep-alive bracket around the whole run (waiting for the job included): the coordinator starts the
+        // foreground service only if the app is backgrounded while this is active, and stops it when it ends.
+        coordinator.onImageJob(active = true, modelName = model.displayName)
         try {
             jobGate.withJob(JOB_TAG) {
                 coordinator.releaseForImageGen()
@@ -146,6 +149,8 @@ class ImageGenRepository(
             throw e
         } catch (e: Exception) {
             _state.value = ImageGenUiState.Error(e.message ?: Msg.FAILED)
+        } finally {
+            coordinator.onImageJob(active = false, modelName = model.displayName)
         }
     }
 

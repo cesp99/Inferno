@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -62,12 +63,22 @@ class ImageEngine(
     suspend fun load(spec: ImageModelSpec, modelPath: String, taesdPath: String) {
         jobMutex.withLock {
             _state.value = ImageEngineState.Loading
-            val err = withWatchdog(onLowMemory = { SdNative.cancel() }) {
-                withContext(dispatcher) {
-                    // Flash attention in the UNet halves the compute buffer on CPU (docs/performance.md);
-                    // the speed cost is negligible next to the memory headroom it buys on an 8 GB phone.
-                    SdNative.load(modelPath, taesdPath, threads, true)
+            val err = try {
+                withWatchdog(onLowMemory = { SdNative.cancel() }) {
+                    withContext(dispatcher) {
+                        // Flash attention in the UNet halves the compute buffer on CPU (docs/performance.md);
+                        // the speed cost is negligible next to the memory headroom it buys on an 8 GB phone.
+                        SdNative.load(modelPath, taesdPath, threads, true)
+                    }
                 }
+            } catch (e: CancellationException) {
+                // SdNative.load cannot be interrupted: by the time withContext rethrows it has either run to
+                // completion or never started. Drop the orphaned sd_ctx (1.8-2.6 GB with no owner) and settle the
+                // state instead of staying in Loading forever.
+                withContext(NonCancellable + dispatcher) { SdNative.unload() }
+                loadedSpec = null
+                _state.value = ImageEngineState.Idle
+                throw e
             }
             if (err == null && SdNative.isLoaded()) {
                 loadedSpec = spec
@@ -110,7 +121,7 @@ class ImageEngine(
         val seed = if (req.seed < 0) Random.nextLong(0, Int.MAX_VALUE.toLong()) else req.seed
         var lowMemory = false
 
-        val listener = GenListener(this, req, startNs)
+        val listener = GenListener(this, startNs)
         var native: Deferred<NativeOutcome>? = null
         try {
             // Emitted before the native job exists so it can never trail the first Progress event.
@@ -183,7 +194,6 @@ class ImageEngine(
     /** Runs on the worker thread from inside SdNative.generate; forwards into the channel. */
     private inner class GenListener(
         private val scope: ProducerScope<ImageGenEvent>,
-        private val req: ImageGenRequest,
         private val startNs: Long,
     ) : SdNative.Listener {
         // sd.cpp emits the (denoised) preview of a step right before that step's progress report.
@@ -197,8 +207,11 @@ class ImageEngine(
         }
 
         override fun onPreview(step: Int, width: Int, height: Int, rgba: ByteArray) {
+            // Runs on the sampler thread between steps: encode at the latent size (64x64, a few KB, sub-millisecond)
+            // and let the UI crop + blur it; upscaling to the output size here would stall the diffusion loop for
+            // ~100-200 ms per step and hand the main thread a 200 KB PNG to decode.
             pendingPreview = try {
-                encodePng(rgba, width, height, req.width, req.height)
+                encodePng(rgba, width, height, width, height)
             } catch (e: Throwable) {
                 Log.w(TAG, "preview encode failed", e)
                 null
