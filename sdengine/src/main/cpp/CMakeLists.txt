@@ -23,7 +23,7 @@ set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE OFF CACHE BOOL "" FORCE)
 add_subdirectory(${SD_DIR} ${CMAKE_BINARY_DIR}/stable-diffusion.cpp EXCLUDE_FROM_ALL)
 
-add_library(inferno_sd SHARED sd_jni.cpp)
+add_library(inferno_sd SHARED sd_jni.cpp sd_engine.cpp)
 target_include_directories(inferno_sd PRIVATE ${SD_DIR}/include ${SD_DIR}/ggml/include)
 target_link_libraries(inferno_sd PRIVATE stable-diffusion ggml log android)
 target_link_options(inferno_sd PRIVATE -Wl,-z,max-page-size=16384 -Wl,--gc-sections -Wl,--exclude-libs,ALL)
