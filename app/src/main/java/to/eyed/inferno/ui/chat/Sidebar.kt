@@ -92,7 +92,8 @@ fun Sidebar(
     activeId: String?,
     busyIds: Set<String>,
     loadedModelName: String?,
-    deviceSummary: String,
+    /** Developer mode: "MT6878 · 4 big cores · 7.8 GB" under the footer rows; null for everyone else. */
+    deviceSummary: String?,
     onSelect: (String) -> Unit,
     onNew: () -> Unit,
     onCreateImage: () -> Unit,
@@ -181,7 +182,7 @@ fun Sidebar(
         Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (showBenchmark) NavRow(Lucide.Gauge, S.benchmark, onClick = onOpenBench)
             NavRow(Lucide.Settings, S.settings, onClick = onOpenSettings)
-            Text(deviceSummary, style = RowMeta, color = Ink.I500, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
+            if (deviceSummary != null) Text(deviceSummary, style = RowMeta, color = Ink.I500, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
         }
     }
 }

@@ -44,7 +44,7 @@ import to.eyed.inferno.vm.AppViewModel
 
 // Context-length page (spec 5.6 ModelSheet "context"): Auto toggle with the resolved label, a 1,024-step slider
 // whose label is an instant analytic estimate (AppViewModel.previewEstimate, no native call), the KV type
-// group and Apply. Hosted by ModelSheet and by the Settings screen.
+// group (developer) and Apply. Hosted by ModelSheet and by the Settings screen, both power user and up.
 
 private const val IMPORT_CAP = 32_768
 
@@ -54,6 +54,8 @@ fun ContextPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = Mo
     val engine by appVm.engine.collectAsStateWithLifecycle()
     val plan by appVm.loadPlan.collectAsStateWithLifecycle()
     val models by appVm.models.collectAsStateWithLifecycle()
+    // The memory breakdown and the KV type are developer facts; a power user gets the bar and the percentage.
+    val dev = settings.developerMode
 
     val modelId = engine.modelOrNull?.id ?: settings.selectedModelId
     val entry = models.firstOrNull { it.id == modelId }
@@ -101,8 +103,10 @@ fun ContextPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = Mo
                     Spacer(Modifier.width(8.dp))
                     Text(S.tokens, style = Typography.bodyMedium, color = Ink.I500, modifier = Modifier.padding(bottom = 6.dp))
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(breakdown(estimate), style = Numeric, color = Ink.I500)
+                if (dev) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(breakdown(estimate), style = Numeric, color = Ink.I500)
+                }
                 Spacer(Modifier.height(12.dp))
                 val fraction = if (budget > 0) estimate.totalBytes.toFloat() / budget else 0f
                 UsageBar(fraction, approximate = true, color = if (fraction > ContextManager.BUDGET_GATE) Ink.Danger else Ink.White)
@@ -126,15 +130,17 @@ fun ContextPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = Mo
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        SettingsCard {
-            SettingRow(S.kvCache, S.kvCacheDesc)
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
-                ConnectedGroup(KV_LABELS, KvCachePref.entries.indexOf(kvPref), { kv = KvCachePref.entries[it].name })
+        if (dev) {
+            Spacer(Modifier.height(16.dp))
+            SettingsCard {
+                SettingRow(S.kvCache, S.kvCacheDesc)
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+                    ConnectedGroup(KV_LABELS, KvCachePref.entries.indexOf(kvPref), { kv = KvCachePref.entries[it].name })
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
-        Text(S.contextNote, style = Typography.bodySmall, color = Ink.I500, modifier = Modifier.padding(horizontal = 8.dp))
+        Text(if (dev) S.contextNote else S.contextNotePlain, style = Typography.bodySmall, color = Ink.I500, modifier = Modifier.padding(horizontal = 8.dp))
         Spacer(Modifier.height(20.dp))
 
         val changed = (if (auto) 0 else draft) != settings.contextSize || kvPref != settings.kvCache

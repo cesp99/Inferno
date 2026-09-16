@@ -62,6 +62,7 @@ import com.composables.icons.lucide.Minus
 import com.composables.icons.lucide.Plus
 import com.composables.icons.lucide.RotateCcw
 import com.composables.icons.lucide.Shuffle
+import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.imagegen.GenerationRecord
 import to.eyed.inferno.imagegen.ImageGenUiState
 import to.eyed.inferno.imagegen.ImageSizePreset
@@ -216,11 +217,13 @@ private fun CreateContent(
                 }
             }
             SectionHeader(S.options)
+            val settings by appVm.settings.collectAsStateWithLifecycle()
             OptionsCard(
                 model, size, steps, seed, lastSeed = gallery.firstOrNull()?.seed,
                 onSize = { haptics.tap(); imageVm.setSize(it) },
                 onSteps = { haptics.tap(); imageVm.setSteps(it) },
                 onSeed = { haptics.tap(); imageVm.setSeed(it) },
+                advanced = settings.powerUser, samplerName = settings.developerMode,
             )
             Spacer(Modifier.height(24.dp))
         }
@@ -251,7 +254,10 @@ private fun ctaMode(state: ImageGenUiState, download: DownloadState, model: Imag
     else -> CtaMode.Download(S.downloadModel(model.displayName, DownloadService.fmt(ImageModelCatalog.bytesOnDisk(model))))
 }
 
-/** Size pill, the DreamShaper-only steps stepper, and the seed row (random / fixed with copy / reuse / shuffle). */
+/**
+ * Size pill for everyone; the DreamShaper-only steps stepper and the seed row (random / fixed with copy / reuse /
+ * shuffle) from the power-user tier ([advanced]); the sampler's name next to the steps only for a developer.
+ */
 @Composable
 private fun OptionsCard(
     model: ImageCatalogModel,
@@ -262,6 +268,8 @@ private fun OptionsCard(
     onSize: (ImageSizePreset) -> Unit,
     onSteps: (Int?) -> Unit,
     onSeed: (Long) -> Unit,
+    advanced: Boolean,
+    samplerName: Boolean,
 ) {
     val context = LocalContext.current
     SettingsCard {
@@ -272,10 +280,12 @@ private fun OptionsCard(
                 modifier = Modifier.width(150.dp),
             )
         }
+        if (!advanced) return@SettingsCard
         if (model.stepsAdjustable) {
             CardDivider()
             val cur = model.clampSteps(steps ?: model.defaultSteps)
-            SettingRow(S.steps, "${model.spec.sampler.name} · ${model.minSteps}–${model.maxSteps}") {
+            val range = "${model.minSteps}–${model.maxSteps}"
+            SettingRow(S.steps, if (samplerName) "${model.spec.sampler.name} · $range" else range) {
                 Row(Modifier.surfaceLow(CircleShape).padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     GhostIconButton(Lucide.Minus, S.fewerSteps, enabled = cur > model.minSteps, tint = Ink.I100, onClick = { onSteps(cur - 1) })
                     Text("$cur", style = Numeric.copy(fontSize = 15.sp), color = Ink.White, modifier = Modifier.width(28.dp), textAlign = TextAlign.Center)

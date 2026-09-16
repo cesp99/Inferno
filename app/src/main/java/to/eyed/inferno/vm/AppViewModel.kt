@@ -28,7 +28,9 @@ import to.eyed.inferno.data.ContextPolicy
 import to.eyed.inferno.data.KvCachePref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
+import to.eyed.inferno.data.ExperienceLevel
 import to.eyed.inferno.data.devBenchmark
+import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.engine.Calibration
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
@@ -283,7 +285,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             c.prefs.setLoadAttempt(null)
             firstTurnPending = true
             when {
-                plan.clampedFrom != null -> notice(S.contextReducedTo(ContextManager.tokens(plan.config.nCtx)))
+                plan.clampedFrom != null -> notice(if (s.powerUser) S.contextReducedTo(ContextManager.tokens(plan.config.nCtx)) else S.contextReducedPlain)
                 local.hasVision && !plan.visionAllowed -> notice(S.noMemoryForVision)
             }
         } catch (e: CancellationException) {
@@ -422,7 +424,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun setHaptics(v: Boolean) = viewModelScope.launch { c.prefs.setHaptics(v) }
     fun setAllowMeteredDownloads(v: Boolean) = viewModelScope.launch { c.prefs.setAllowMeteredDownloads(v) }
     fun setMinLogPriority(p: Int) = viewModelScope.launch { c.prefs.setMinLogPriority(p) }
-    fun setDeveloperMode(v: Boolean) = viewModelScope.launch { c.prefs.setDeveloperMode(v) }
+    fun setExperienceLevel(l: ExperienceLevel) = viewModelScope.launch { c.prefs.setExperienceLevel(l) }
     fun setDevFlag(flag: DevFlag, v: Boolean) = viewModelScope.launch { c.prefs.setDevFlag(flag, v) }
 
     // ---- developer-mode facts (ui/settings/DeveloperPage.kt, chat thermal line) ----------------------------------

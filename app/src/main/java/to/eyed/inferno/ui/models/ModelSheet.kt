@@ -26,6 +26,7 @@ import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.SlidersHorizontal
 import com.composables.icons.lucide.X
 import to.eyed.inferno.data.devModelTechSpecs
+import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.modelOrNull
 import to.eyed.inferno.ui.S
@@ -45,7 +46,7 @@ import to.eyed.inferno.vm.AppViewModel
 import java.util.Locale
 
 // Bottom sheet from the chat model chip (spec 5.6 ModelSheet.kt): downloaded models with the loaded one checked,
-// "Manage models", then the Context length and Generation pages. The page name survives rotation.
+// "Manage models", then - for a power user - the Context length and Generation pages. The page name survives rotation.
 
 @Composable
 fun ModelSheet(appVm: AppViewModel, onDismiss: () -> Unit, onOpenManager: () -> Unit) {
@@ -111,13 +112,15 @@ private fun MainPage(appVm: AppViewModel, onDismiss: () -> Unit, onOpenManager: 
             NavCard(Lucide.HardDrive, S.manageModels, S.curatedForThisPhone, onClick = { onDismiss(); onOpenManager() })
         }
 
-        Spacer(Modifier.height(16.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val ctxValue = plan?.takeIf { loadedId != null }?.resolvedLabel
-                ?: if (settings.contextSize == 0) S.autoMax else "${String.format(Locale.US, "%,d", settings.contextSize)} ${S.tokens}"
-            NavCard(Lucide.Gauge, S.contextLength, ctxValue, onClick = { onPage("context") })
-            val p = appVm.effectiveParams()
-            NavCard(Lucide.SlidersHorizontal, S.generation, "temp ${trim(p.temperature)} · top-p ${trim(p.topP)} · top-k ${p.topK}", onClick = { onPage("sampling") })
+        if (settings.powerUser) {
+            Spacer(Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val ctxValue = plan?.takeIf { loadedId != null }?.resolvedLabel
+                    ?: if (settings.contextSize == 0) S.autoMax else "${String.format(Locale.US, "%,d", settings.contextSize)} ${S.tokens}"
+                NavCard(Lucide.Gauge, S.contextLength, ctxValue, onClick = { onPage("context") })
+                val p = appVm.effectiveParams()
+                NavCard(Lucide.SlidersHorizontal, S.generation, "temp ${trim(p.temperature)} · top-p ${trim(p.topP)} · top-k ${p.topK}", onClick = { onPage("sampling") })
+            }
         }
     }
 }

@@ -72,11 +72,11 @@ fun TopNav(
     onOpenModelSheet: () -> Unit,
     onNewChat: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Developer mode: the context ring in the chip (and the resolved label on long-press). */
+    /** Power user and up: the context ring in the chip and the "Context 42% used" line on long-press. */
     showContextRing: Boolean = false,
     /** Developer mode: "4 threads · pinned · thermal nominal · sustained off" under the long-press label; null hides it. */
     computeLine: (() -> String)? = null,
-    /** "Compact now" in the context panel (long-press on the chip); null hides it (no chat, engine busy). */
+    /** "Compact now" in the context panel (long-press on the chip); null hides it (normal tier, no chat, engine busy). */
     onCompactNow: (() -> Unit)? = null,
 ) {
     Column(modifier.background(Ink.Pitch)) {
@@ -84,14 +84,18 @@ fun TopNav(
             if (showDrawerToggle) {
                 GhostIconButton(Lucide.PanelLeft, S.openSidebar, onOpenDrawer, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterStart))
             }
-            ModelChip(engine, contextUsage, resolvedCtxLabel.takeIf { showContextRing }, selectedModelName, onOpenModelSheet, onCompactNow, Modifier.align(Alignment.Center).padding(horizontal = 48.dp), showRing = showContextRing, computeLine = computeLine)
+            ModelChip(engine, contextUsage, resolvedCtxLabel, selectedModelName, onOpenModelSheet, onCompactNow, Modifier.align(Alignment.Center).padding(horizontal = 48.dp), showRing = showContextRing, computeLine = computeLine)
             GhostIconButton(Lucide.SquarePen, S.newChat, onNewChat, size = 40.dp, iconSize = 20.dp, tint = Ink.I100, modifier = Modifier.align(Alignment.CenterEnd))
         }
         AnimatedVisibility(scrolled, enter = fadeIn(fastEffectsSpec()), exit = fadeOut(fastEffectsSpec())) { Hairline() }
     }
 }
 
-/** SurfaceHigh pill whose content follows the engine state; long-press reveals the context panel (resolved label, usage, Compact now). */
+/**
+ * SurfaceHigh pill whose content follows the engine state; long-press reveals the context panel. What it holds is
+ * tiered by the caller: nothing for a normal user (no long-press at all), "Context 42% used" + Compact now for a
+ * power user, plus the resolved context label and the compute line for a developer.
+ */
 @Composable
 private fun ModelChip(
     engine: EngineState,
@@ -107,7 +111,7 @@ private fun ModelChip(
     val haptics = rememberHaptics()
     val interaction = remember { MutableInteractionSource() }
     var info by remember { mutableStateOf(false) }
-    val hasInfo = (resolvedCtxLabel != null || computeLine != null) && engine !is EngineState.Idle
+    val hasInfo = (resolvedCtxLabel != null || computeLine != null || (showRing && usage.nCtx > 0)) && engine !is EngineState.Idle
     Box(modifier) {
         Row(
             Modifier

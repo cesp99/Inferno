@@ -40,6 +40,7 @@ import com.composables.icons.lucide.FolderOpen
 import com.composables.icons.lucide.Lucide
 import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.data.devModelTechSpecs
+import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.modelOrNull
@@ -89,7 +90,8 @@ fun ModelManagerScreen(appVm: AppViewModel, onBeforeDownload: () -> Unit, onBack
     val loadingId = (engine as? EngineState.Loading)?.model?.id ?: settings.selectedModelId.takeIf { loadInProgress && engine is EngineState.Idle }
     val downloadedCount = models.count { it.isDownloaded }
     // Blocked reasons: resident weights + compute + KV at MIN_CTX against the planner gate, recomputed per list change.
-    val blocked = remember(models, settings.kvCache, engine) { blockedReasons(appVm, models, settings) }
+    // A normal user gets the plain "May be too large for this phone"; the numbers are for power users and up.
+    val blocked = remember(models, settings.kvCache, engine, settings.powerUser) { blockedReasons(appVm, models, settings) }
 
     val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Column(Modifier.fillMaxSize().nestedScroll(scroll.nestedScrollConnection)) {
@@ -121,19 +123,22 @@ fun ModelManagerScreen(appVm: AppViewModel, onBeforeDownload: () -> Unit, onBack
                 }
             }
 
+            // Imports are a power-user feature; a normal user still sees (and can delete) files already imported.
             val imports = models.filter { it.catalog == null }
-            item(key = "imports-header") { SectionHeader(S.importedModels) }
-            item(key = "imports") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (imports.isNotEmpty()) SettingsCard {
-                        imports.forEachIndexed { i, e ->
-                            if (i > 0) CardDivider()
-                            val addProjector = rememberProjectorPicker(appVm, e.id)
-                            ManagerRow(e, appVm, loadedId, loadingId, blocked[e.id], settings, requestConfirm,
-                                menuExtra = if (e.local?.hasVision == false) { close -> MenuRow(S.importProjector, icon = Lucide.Eye, onClick = { close(); addProjector() }) } else null)
+            if (settings.powerUser || imports.isNotEmpty()) {
+                item(key = "imports-header") { SectionHeader(S.importedModels) }
+                item(key = "imports") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (imports.isNotEmpty()) SettingsCard {
+                            imports.forEachIndexed { i, e ->
+                                if (i > 0) CardDivider()
+                                val addProjector = rememberProjectorPicker(appVm, e.id)
+                                ManagerRow(e, appVm, loadedId, loadingId, blocked[e.id], settings, requestConfirm,
+                                    menuExtra = if (settings.powerUser && e.local?.hasVision == false) { close -> MenuRow(S.importProjector, icon = Lucide.Eye, onClick = { close(); addProjector() }) } else null)
+                            }
                         }
+                        if (settings.powerUser) NavCard(Lucide.FolderOpen, S.importGguf, S.importCardHint, onClick = importModel)
                     }
-                    NavCard(Lucide.FolderOpen, S.importGguf, S.importCardHint, onClick = importModel)
                 }
             }
 
@@ -147,7 +152,7 @@ fun ModelManagerScreen(appVm: AppViewModel, onBeforeDownload: () -> Unit, onBack
                 }
             }
 
-            item(key = "storage") { StorageFooter(storage) }
+            item(key = "storage") { StorageFooter(storage, quantNote = settings.devModelTechSpecs) }
         }
     }
 
@@ -216,9 +221,9 @@ private fun ImageModelRow(m: ImageCatalogModel, state: DownloadState, appVm: App
     }
 }
 
-/** Device storage: grey = everything used, white = the models' share; numbers underneath. */
+/** Device storage: grey = everything used, white = the models' share; numbers underneath. [quantNote] (developer): the Q4_0 / KleidiAI line. */
 @Composable
-private fun StorageFooter(s: StorageInfo) {
+private fun StorageFooter(s: StorageInfo, quantNote: Boolean) {
     val used = (s.totalBytes - s.freeBytes).coerceAtLeast(0)
     val usedFrac = if (s.totalBytes > 0) used.toFloat() / s.totalBytes else 0f
     val modelsFrac = if (s.totalBytes > 0) (s.modelsBytes.toFloat() / s.totalBytes).coerceAtMost(usedFrac) else 0f
@@ -231,19 +236,24 @@ private fun StorageFooter(s: StorageInfo) {
         val partial = if (s.partialBytes > 0) DownloadService.fmt(s.partialBytes) else null
         Text(S.storageLine(DownloadService.fmt(s.modelsBytes), partial, DownloadService.fmt(s.freeBytes), DownloadService.fmt(s.totalBytes)), style = Numeric, color = Ink.I500)
         Spacer(Modifier.height(6.dp))
-        Text(S.q4Footer, style = Typography.bodySmall, color = Ink.I500)
-        Spacer(Modifier.height(2.dp))
+        if (quantNote) {
+            Text(S.q4Footer, style = Typography.bodySmall, color = Ink.I500)
+            Spacer(Modifier.height(2.dp))
+        }
         Text(S.storageFooter, style = Typography.bodySmall, color = Ink.I500)
     }
 }
 
-/** "Needs ~3.4 GB free, 2.9 GB available" for rows whose minimum-context footprint exceeds the planner gate. */
+/**
+ * "Needs ~3.4 GB of memory, 2.9 GB usable right now" (power user and up) or "May be too large for this phone" (normal)
+ * for rows whose minimum-context footprint exceeds the planner gate.
+ */
 private fun blockedReasons(appVm: AppViewModel, models: List<ModelEntry>, settings: SettingsState): Map<String, String> {
     val budget = appVm.budgetBytes()
     val gate = (ContextManager.BUDGET_GATE * budget).toLong()
     return models.mapNotNull { e ->
         val est = appVm.previewEstimate(e.id, ContextManager.MIN_CTX, settings.kvCache)
         val need = est.modelResidentBytes + est.computeBytes + est.kvBytes
-        if (need > gate && need > 0) e.id to S.needsMemory(ContextManager.gb(need), ContextManager.gb(gate)) else null
+        if (need > gate && need > 0) e.id to (if (settings.powerUser) S.needsMemory(ContextManager.gb(need), ContextManager.gb(gate)) else S.mayBeTooLarge) else null
     }.toMap()
 }

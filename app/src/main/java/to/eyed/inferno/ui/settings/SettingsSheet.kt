@@ -2,6 +2,13 @@
 
 package to.eyed.inferno.ui.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -28,10 +35,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.X
+import to.eyed.inferno.data.ExperienceLevel
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.data.devGenerationStats
 import to.eyed.inferno.data.devThermalInfo
+import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.LoadedModel
 import to.eyed.inferno.engine.modelOrNull
@@ -53,6 +62,9 @@ import to.eyed.inferno.ui.components.ToggleRow
 import to.eyed.inferno.ui.models.ContextPage
 import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.Typography
+import to.eyed.inferno.ui.theme.defaultEffectsSpec
+import to.eyed.inferno.ui.theme.defaultSpatialSpec
+import to.eyed.inferno.ui.theme.fastEffectsSpec
 import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.ChatViewModel
 import to.eyed.inferno.vm.Screen
@@ -61,6 +73,10 @@ import java.util.Locale
 // Settings (spec 5.6 SettingsSheet.kt). The body is one composable; SettingsScreen wraps it in a
 // LargeFlexibleTopAppBar for the SETTINGS screen, SettingsSheet in an InfernoSheet for the sidebar footer.
 // Sub-pages open as sheets whose name lives in rememberSaveable.
+//
+// The Experience card at the top picks the tier (data/DevFlags.kt lists what each one shows); the sections under
+// it fold in and out with it. Normal is a consumer app: Chat, Storage, About, Danger zone. Power user adds
+// Performance, Context and Generation. Developer adds Advanced and the Developer page.
 
 @Composable
 fun SettingsScreen(appVm: AppViewModel, chatVm: ChatViewModel, onBack: () -> Unit = { appVm.back() }) {
@@ -102,62 +118,83 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
     val loaded = (engine as? EngineState.Ready)?.loaded ?: (engine as? EngineState.Generating)?.loaded
     val catalog = engine.modelOrNull?.catalog
     var sheet by rememberSaveable { mutableStateOf("") }
+    val power = s.powerUser
+    val dev = s.developerMode
 
-    // ---- Performance: the one top-level engine decision --------------------------------------------------------
-    SectionHeader(S.performance, Modifier.padding(top = 0.dp))
+    // ---- Experience: who these settings are for; everything below folds in and out with the choice ----------------
+    SectionHeader(S.experience, Modifier.padding(top = 0.dp))
     SettingsCard {
-        val custom = s.threads != s.perfPreset.threads || s.pinBigCores != s.perfPreset.pin || s.poll != s.perfPreset.poll
-        ControlRow(if (custom) "${S.preset} · ${S.custom}" else S.preset, description = if (s.devGenerationStats) perfLine(s, loaded, catalog?.estTgTps) else null) {
-            ConnectedGroup(PerfPreset.entries.map { it.label }, if (custom) -1 else s.perfPreset.ordinal, { appVm.setPerfPreset(PerfPreset.entries[it]) })
+        ControlRow(S.experience) {
+            ConnectedGroup(listOf(S.levelNormal, S.levelPower, S.levelDeveloper), s.experienceLevel.ordinal, { appVm.setExperienceLevel(ExperienceLevel.entries[it]) })
         }
         CardDivider()
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) { Text(S.presetDescription, style = Typography.bodySmall, color = Ink.I500) }
+        val fade = fastEffectsSpec<Float>()
+        AnimatedContent(s.experienceLevel, transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "levelDesc") { level ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) { Text(levelDescription(level), style = Typography.bodySmall, color = Ink.I500) }
+        }
     }
 
-    // ---- Inference ---------------------------------------------------------------------------------------------
-    SectionHeader(S.inference)
+    // ---- Performance (power+): the one top-level engine decision; developers also get the Compute facts -----------
+    TierSection(power) {
+        SectionHeader(S.performance)
+        SettingsCard {
+            val custom = s.threads != s.perfPreset.threads || s.pinBigCores != s.perfPreset.pin || s.poll != s.perfPreset.poll
+            ControlRow(if (custom) "${S.preset} · ${S.custom}" else S.preset, description = if (s.devGenerationStats) perfLine(s, loaded, catalog?.estTgTps) else null) {
+                ConnectedGroup(PerfPreset.entries.map { it.label }, if (custom) -1 else s.perfPreset.ordinal, { appVm.setPerfPreset(PerfPreset.entries[it]) })
+            }
+            CardDivider()
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) { Text(S.presetDescription, style = Typography.bodySmall, color = Ink.I500) }
+            if (s.devThermalInfo) {
+                CardDivider()
+                val cpu = appVm.cpu
+                val features = listOfNotNull("dotprod".takeIf { cpu.hasDotprod }, "fp16".takeIf { cpu.hasFp16 }, "i8mm".takeIf { cpu.hasI8mm })
+                val liveThreads by appVm.activeThreadsFlow.collectAsStateWithLifecycle()
+                SettingRow(S.computeRow, S.cpuLine(cpu.socName, cpu.nBig, cpu.nCores, features.joinToString(", "), appVm.computeLine(liveThreads)))
+            }
+        }
+    }
+
+    // ---- Context (power+): how much the model remembers and what happens when that runs out ----------------------
+    TierSection(power) {
+        SectionHeader(S.context)
+        SettingsCard {
+            val ctxValue = plan?.takeIf { loaded != null }?.resolvedLabel?.substringBeforeLast(" · ") ?: if (s.contextSize == 0) S.presetAuto else "${String.format(Locale.US, "%,d", s.contextSize)} ${S.tokens}"
+            NavRow(S.contextLength, ctxValue, onClick = { sheet = "context" })
+            CardDivider()
+            ContextPolicyRow(s.contextPolicy, appVm::setContextPolicy)
+        }
+    }
+
+    // ---- Generation (power+): prompt, sampling, thinking --------------------------------------------------------
+    TierSection(power) {
+        SectionHeader(S.generation)
+        SettingsCard {
+            NavRow(S.systemPrompt, s.systemPrompt.trim().ifBlank { S.noSystemPrompt }, onClick = { sheet = "prompt" })
+            CardDivider()
+            val p = appVm.effectiveParams()
+            NavRow(S.sampling, "temp ${trim(p.temperature)} · top-p ${trim(p.topP)}", onClick = { sheet = "sampling" },
+                description = if (s.useModelSamplingDefaults) S.useModelDefaults else null)
+            CardDivider()
+            val thinkingAvailable = catalog?.thinking?.hasTags == true
+            ToggleRow(S.thinkingToggle, s.thinking, appVm::setThinking, description = if (thinkingAvailable || loaded == null) S.thinkingDesc else S.thinkingUnavailable, enabled = thinkingAvailable || loaded == null)
+        }
+    }
+
+    // ---- Chat (everyone): plain words only ----------------------------------------------------------------------
+    SectionHeader(S.chat)
     SettingsCard {
-        val ctxValue = plan?.takeIf { loaded != null }?.resolvedLabel?.substringBeforeLast(" · ") ?: if (s.contextSize == 0) S.presetAuto else "${String.format(Locale.US, "%,d", s.contextSize)} ${S.tokens}"
-        NavRow(S.contextLength, ctxValue, onClick = { sheet = "context" })
-        CardDivider()
-        ControlRow(S.imageDetail, description = imageDetailLine(s, loaded, catalog?.encodeMsAt448, s.devGenerationStats)) {
+        ControlRow(S.photoQuality, description = imageDetailLine(s, loaded, catalog?.encodeMsAt448, s.devGenerationStats)) {
             ConnectedGroup(listOf(S.fast, S.balanced, S.highDetail), s.imageDetail.ordinal, { appVm.setImageDetail(ImageDetail.entries[it]) })
         }
         CardDivider()
-        ToggleRow(S.keepModelLoaded, s.keepModelLoaded, appVm::setKeepModelLoaded, description = S.keepModelLoadedDesc)
-        if (s.devThermalInfo) {
-            CardDivider()
-            val cpu = appVm.cpu
-            val features = listOfNotNull("dotprod".takeIf { cpu.hasDotprod }, "fp16".takeIf { cpu.hasFp16 }, "i8mm".takeIf { cpu.hasI8mm })
-            val liveThreads by appVm.activeThreadsFlow.collectAsStateWithLifecycle()
-            SettingRow(S.computeRow, S.cpuLine(cpu.socName, cpu.nBig, cpu.nCores, features.joinToString(", "), appVm.computeLine(liveThreads)))
-        }
-    }
-
-    // ---- Generation --------------------------------------------------------------------------------------------
-    SectionHeader(S.generation)
-    SettingsCard {
-        val p = appVm.effectiveParams()
-        NavRow(S.sampling, "temp ${trim(p.temperature)} · top-p ${trim(p.topP)}", onClick = { sheet = "sampling" },
-            description = if (s.useModelSamplingDefaults) S.useModelDefaults else null)
-        CardDivider()
-        val thinkingAvailable = catalog?.thinking?.hasTags == true
-        ToggleRow(S.thinkingToggle, s.thinking, appVm::setThinking, description = if (thinkingAvailable || loaded == null) S.thinkingDesc else S.thinkingUnavailable, enabled = thinkingAvailable || loaded == null)
-    }
-
-    // ---- Chat --------------------------------------------------------------------------------------------------
-    SectionHeader(S.chat)
-    SettingsCard {
-        NavRow(S.systemPrompt, s.systemPrompt.trim().ifBlank { S.noSystemPrompt }, onClick = { sheet = "prompt" })
-        CardDivider()
-        ContextPolicyRow(s.contextPolicy, appVm::setContextPolicy)
+        ToggleRow(S.stayReady, s.keepModelLoaded, appVm::setKeepModelLoaded, description = S.stayReadyDesc)
         CardDivider()
         ToggleRow(S.streamingAnimations, s.streamingAnimations, appVm::setStreamingAnimations, description = S.streamingAnimationsDesc)
         CardDivider()
         ToggleRow(S.haptics, s.haptics, appVm::setHaptics, description = S.hapticsDesc)
     }
 
-    // ---- Storage -----------------------------------------------------------------------------------------------
+    // ---- Storage (everyone) -------------------------------------------------------------------------------------
     SectionHeader(S.storage)
     SettingsCard {
         val n = models.count { it.isDownloaded }
@@ -166,11 +203,18 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
         }
         CardDivider()
         ToggleRow(S.allowMetered, s.allowMeteredDownloads, appVm::setAllowMeteredDownloads, description = S.allowMeteredDesc)
-        CardDivider()
-        SettingRow(S.clearImageCache, S.clearImageCacheDesc) { GlassButton(S.clear, onClick = appVm::clearImageCache) }
+        TierSection(power) {
+            Column {
+                CardDivider()
+                SettingRow(S.clearImageCache, S.clearImageCacheDesc) { GlassButton(S.clear, onClick = appVm::clearImageCache) }
+            }
+        }
     }
 
-    AdvancedSections(appVm, chatVm, s, onOpenBench = onOpenBench, onOpenLicences = { sheet = "licences" }, developerRow = { DeveloperNavRow(appVm) })
+    // ---- Advanced (developer): the engine knobs, the benchmark and the Developer page -----------------------------
+    TierSection(dev) { AdvancedSection(appVm, s, onOpenBench = onOpenBench, developerRow = { DeveloperNavRow(appVm) }) }
+
+    AboutAndDangerSections(appVm, chatVm, onOpenLicences = { sheet = "licences" }, buildLine = dev)
 
     when (sheet) {
         "context" -> InfernoSheet(onDismiss = { sheet = "" }, wide = true) {
@@ -185,6 +229,22 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
     Spacer(Modifier.height(8.dp))
 }
 
+/** A settings section that folds in and out with the experience level (Motion.kt specs: spatial for the size, effects for the alpha). */
+@Composable
+private fun TierSection(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = expandVertically(defaultSpatialSpec()) + fadeIn(defaultEffectsSpec()),
+        exit = shrinkVertically(defaultSpatialSpec()) + fadeOut(defaultEffectsSpec()),
+    ) { Column { content() } }
+}
+
+private fun levelDescription(level: ExperienceLevel): String = when (level) {
+    ExperienceLevel.NORMAL -> S.levelNormalDesc
+    ExperienceLevel.POWER -> S.levelPowerDesc
+    ExperienceLevel.DEVELOPER -> S.levelDeveloperDesc
+}
+
 /** "18.4 tok/s with 4 pinned cores" from the calibration, else the catalog estimate, else the preset blurb. */
 private fun perfLine(s: SettingsState, loaded: LoadedModel?, est: String?): String {
     val cal = loaded?.calibration ?: loaded?.let { s.calibration[it.model.id] }
@@ -197,9 +257,9 @@ private fun perfLine(s: SettingsState, loaded: LoadedModel?, est: String?): Stri
 
 /**
  * "≈ 512 image tokens, about 10 s per image": measured encode when present, else scaled from the catalog's 448 px
- * figure. Without developer mode only the plain "About 10 s per image" part remains (null when nothing is known).
+ * figure. Without developer mode only the plain "About 10 s per image" part remains (the generic photo-quality line when nothing is known).
  */
-private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt448: Int?, tech: Boolean): String? {
+private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt448: Int?, tech: Boolean): String {
     val d = s.imageDetail
     val measured = loaded?.let { s.calibration[it.model.id]?.imageEncode?.get(d.name)?.ms }
     val ms = measured ?: encodeMsAt448?.takeIf { it > 0 && d != ImageDetail.HIGH }?.let { base ->
@@ -207,7 +267,7 @@ private fun imageDetailLine(s: SettingsState, loaded: LoadedModel?, encodeMsAt44
         (base * scale).toLong()
     }
     val seconds = ms?.let { if (it >= 1000) "${(it + 500) / 1000} s" else "$it ms" }
-    return if (tech) S.imageDetailDesc(d.maxTokens, seconds) else seconds?.let { S.aboutPerImage(it) }
+    return if (tech) S.imageDetailDesc(d.maxTokens, seconds) else seconds?.let { S.aboutPerImage(it) } ?: S.photoQualityDesc
 }
 
 private fun trim(v: Float): String = String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')

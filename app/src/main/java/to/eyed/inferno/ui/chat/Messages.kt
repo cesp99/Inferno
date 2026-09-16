@@ -91,8 +91,10 @@ val ChatContentMaxWidth = 800.dp
 /**
  * Which developer surfaces the list may draw (SettingsState.dev* readers, all false for a normal user): the
  * meta line under the latest answer, the Details action, and the live token counter while streaming.
+ * [tokenWords] (power user and up) lets the prefill line and the trimmed divider say "tokens" and "context window";
+ * a normal user reads plain words instead.
  */
-data class ChatDevFlags(val generationStats: Boolean = false, val turnDetails: Boolean = false, val tokenCounter: Boolean = false)
+data class ChatDevFlags(val generationStats: Boolean = false, val turnDetails: Boolean = false, val tokenCounter: Boolean = false, val tokenWords: Boolean = false)
 
 /** What the list shows for the latest turn while it is in flight. */
 private sealed interface Live {
@@ -154,7 +156,7 @@ fun SharedTransitionScope.MessagesList(
                         stats = null, showActions = false, showRegenerate = false, announce = false,
                         onRegenerate = {}, onDetails = {}, liveMeta = liveMeta,
                     )
-                } else ThinkingIndicator(gen)
+                } else ThinkingIndicator(gen, tokenWords = dev.tokenWords)
             }
             // Summary rows are appended after the turns they cover; they are drawn at their compaction point instead
             // (right below the last covered message), carried-over ones at the very top.
@@ -189,7 +191,7 @@ fun SharedTransitionScope.MessagesList(
                         )
                     }
                 }
-                if (trimmedBefore > 0 && m.orderIndex == trimmedBefore) item(key = "trimmed", contentType = "trimmed") { TrimmedDivider() }
+                if (trimmedBefore > 0 && m.orderIndex == trimmedBefore) item(key = "trimmed", contentType = "trimmed") { TrimmedDivider(dev.tokenWords) }
             }
             val turnIndexes = turns.map { it.orderIndex }.toSet()
             summaries.filter { it.compactedThrough !in turnIndexes }.forEach { sm ->
@@ -373,10 +375,10 @@ internal fun metaLine(s: MessageStats, tech: Boolean = true): String? {
 
 /** Hairline row marking where the context window now starts (shown only when trimmedBefore > 0). */
 @Composable
-private fun TrimmedDivider() {
+private fun TrimmedDivider(tokenWords: Boolean) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Hairline(Modifier.weight(1f))
-        Text(S.olderOutsideContext, style = RowMeta, color = Ink.I500)
+        Text(if (tokenWords) S.olderOutsideContext else S.olderForgotten, style = RowMeta, color = Ink.I500)
         Hairline(Modifier.weight(1f))
     }
 }

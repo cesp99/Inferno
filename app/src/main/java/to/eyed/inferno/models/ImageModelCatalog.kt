@@ -96,7 +96,7 @@ object ImageModelCatalog {
         ),
         tierLabel = "Quality",
         license = "CreativeML OpenRAIL-M",
-        blurb = "SD 1.5 with LCM distillation. Detailed and versatile, about a minute per image.",
+        blurb = "Detailed and versatile; about a minute per image.",
         file = ImageModelFile(
             fileName = "DreamShaper8_LCM_q8_0.gguf",
             url = "$HF/haven-ai-companion/dreamshaper8-lcm-gguf/resolve/main/DreamShaper8_LCM_q8_0.gguf",
@@ -127,7 +127,7 @@ object ImageModelCatalog {
         ),
         tierLabel = "Instant",
         license = "OpenRAIL++",
-        blurb = "One-step distilled SD 1.5. Simpler images in about ten seconds.",
+        blurb = "Simpler images in about ten seconds.",
         file = ImageModelFile(
             fileName = "sdxs-512-tinySDdistilled_Q8_0.gguf",
             url = "$HF/concedo/sdxs-512-tinySDdistilled-GGUF/resolve/main/sdxs-512-tinySDdistilled_Q8_0.gguf",

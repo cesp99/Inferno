@@ -72,6 +72,8 @@ import to.eyed.inferno.data.devGenerationStats
 import to.eyed.inferno.data.devThermalInfo
 import to.eyed.inferno.data.devTokenCounter
 import to.eyed.inferno.data.devTurnDetails
+import to.eyed.inferno.data.powerUser
+import to.eyed.inferno.data.showsContextRing
 import to.eyed.inferno.engine.EngineState
 import to.eyed.inferno.engine.loadedAny
 import to.eyed.inferno.engine.LoadedModel
@@ -150,7 +152,8 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     val trimmedBefore = conversations.firstOrNull { it.id == activeId }?.trimmedBefore ?: 0
     // STOP policy: the ViewModel knows when the next prompt no longer fits; the panel waits for the current turn to end.
     val contextLimit = contextFull && !gen.isBusy
-    val canCompact = activeId != null && messages.any { !it.isSummary } && !gen.isBusy && loaded != null && engine !is EngineState.Loading
+    // Compact now is a power-user action: a normal user never chose the Compact policy and never sees the context.
+    val canCompact = settings.powerUser && activeId != null && messages.any { !it.isSummary } && !gen.isBusy && loaded != null && engine !is EngineState.Loading
 
     // ---- launchers -------------------------------------------------------------------------------------------
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { uris ->
@@ -239,7 +242,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
         Sidebar(
             modifier = m,
             conversations = conversations, activeId = activeId, busyIds = busyIds,
-            loadedModelName = loaded?.model?.displayName, deviceSummary = appVm.deviceSummary,
+            loadedModelName = loaded?.model?.displayName, deviceSummary = appVm.deviceSummary.takeIf { settings.devThermalInfo },
             onSelect = { id -> chatVm.open(id); closeNav() },
             onNew = { chatVm.newChat(); draft = ""; closeNav() },
             onCreateImage = { go(Screen.CREATE) }, onGallery = { go(Screen.GALLERY) },
@@ -272,11 +275,11 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
             val chatContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxSize()) {
                     TopNav(
-                        engine = engine, contextUsage = usage, resolvedCtxLabel = loadPlan?.resolvedLabel, scrolled = scrolled,
+                        engine = engine, contextUsage = usage, resolvedCtxLabel = loadPlan?.resolvedLabel?.takeIf { settings.devContextMeter }, scrolled = scrolled,
                         showDrawerToggle = true, selectedModelName = if (idleLoadable) settings.selectedModelId?.let(appVm::modelDisplayName) else null,
                         onOpenDrawer = openNav, onOpenModelSheet = { modelSheet = true },
                         onNewChat = { haptics.tap(); chatVm.newChat(); draft = "" },
-                        showContextRing = settings.devContextMeter,
+                        showContextRing = settings.showsContextRing,
                         computeLine = if (settings.devThermalInfo) ({ appVm.computeLine(liveThreads) }) else null,
                         onCompactNow = if (canCompact) ({ chatVm.compactNow() }) else null,
                     )
@@ -298,7 +301,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 modifier = Modifier.fillMaxSize(),
                                 // The composer starts with a 32 dp gradient; the last turn rests 8 dp into it, so it never fades yet still scrolls under.
                                 bottomInset = if (composerHeight == 0) 132.dp else with(LocalDensity.current) { composerHeight.toDp() } - 8.dp,
-                                dev = ChatDevFlags(generationStats = settings.devGenerationStats, turnDetails = settings.devTurnDetails, tokenCounter = settings.devTokenCounter),
+                                dev = ChatDevFlags(generationStats = settings.devGenerationStats, turnDetails = settings.devTurnDetails, tokenCounter = settings.devTokenCounter, tokenWords = settings.powerUser),
                             )
                         }
                         Column(Modifier.align(Alignment.BottomCenter).widthIn(max = ChatContentMaxWidth), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -323,7 +326,8 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                         onPickPhotos = pickPhotos, onCapturePhoto = capturePhoto, onNoVision = appVm::notice,
                                         gen = gen, engine = engine, disabledReason = disabledReason, imageBusy = imageBusy,
                                         onSend = send, onStop = chatVm::cancel,
-                                        thinkingAvailable = thinkingAvailable, thinkingOn = settings.thinking, onToggleThinking = appVm::setThinking,
+                                        // The Think chip is a power-user control (Settings > Generation owns the same switch).
+                                        thinkingAvailable = thinkingAvailable && settings.powerUser, thinkingOn = settings.thinking, onToggleThinking = appVm::setThinking,
                                     )
                                 }
                             }

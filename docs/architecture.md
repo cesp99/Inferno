@@ -51,11 +51,26 @@ built by CMake from the pinned submodules under `third_party/`, for `arm64-v8a` 
 * **Stop**: sending pauses with a panel offering a new chat (optionally seeded with a one-off summary) or a
   switch to rolling.
 
-## Developer mode
+## Experience level
 
-Off by default. When on, sub-toggles reveal the meta line under answers, the context ring, turn details,
-the benchmark screen, model tech specs, thermal/thread info and the live token counter, plus an Engine card
-with build tags, CPU features and model buffer types. Normal users see none of it.
+`SettingsState.experienceLevel` (Settings > Experience) picks who the app is for; the readers in
+`data/DevFlags.kt` (`powerUser`, `showsContextRing`, `dev*`) are the only things the UI gates on. Installs that
+stored the old `developerMode=true` boolean migrate to DEVELOPER.
+
+* **Normal** (default): a consumer app. Settings show Experience, Chat (photo quality, stay ready in the
+  background, animations, haptics), Storage, About and the Danger zone. The chat shows the model name only;
+  the model sheet lists downloaded models; model rows carry size, tier and licence in plain words and an
+  oversized model says "May be too large for this phone"; Create offers size and Generate. No tokens, context,
+  cores, KV, sampling, thinking, presets or system prompt anywhere.
+* **Power user**: adds the Performance preset, Context (length page without the KV group, "When the context
+  fills up" policy), Generation (system prompt, sampling with the model-defaults switch, thinking), the Think
+  chip in the composer, the context ring in the model chip with "Context 42% used" + Compact now on long-press,
+  the memory numbers on blocked models, GGUF import, and steps + seed on Create.
+* **Developer**: adds Advanced (threads, pin, flash attention, KV cache, mmap, poll, benchmark) and the
+  Developer page, whose sub-toggles reveal the meta line under answers, turn details, the benchmark screen,
+  model tech specs, the compute/thermal lines (chat empty state, chip panel, sidebar footer, Settings) and the
+  live token counter, plus an Engine card with build tags, CPU features and model buffer types. A developer may
+  switch the context ring off; the About footer gains the llama.cpp / sd.cpp build line.
 
 ## Storage
 

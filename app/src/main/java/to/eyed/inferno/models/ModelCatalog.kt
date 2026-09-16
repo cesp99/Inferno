@@ -51,7 +51,7 @@ object ModelCatalog {
             imageTokensMin = 0, imageTokensMax = 512, dynamicResolution = false, maxImageEdgePx = 448,
             encoderPeakBytes = 600 * MB,   // measured 2026-09-16: peak RSS 1.73 GB with 1.23 GB of weights at 448 px (WP1 acceptance j)
             estTgTps = "25-30",   // measured 2026-09-16: pp 199 / tg 29.7
-            blurb = "Fastest vision model here; strong OCR for its size. Images are capped at 448 px.",
+            blurb = "Fastest vision model here; good at reading text in photos.",
             encodeMsAt448 = 5200,
         ),
         CatalogModel(
@@ -64,7 +64,7 @@ object ModelCatalog {
             thinking = ThinkingSpec(), sampling = lfmSampling,
             imageTokensMin = 64, imageTokensMax = 256, dynamicResolution = true, maxImageEdgePx = 512, encoderPeakBytes = 250 * MB,
             estTgTps = "25-29",   // measured 2026-09-16: pp 150 / tg 29.1
-            blurb = "Very fast replies with a cheap prefill; one 512 px tile per image.",
+            blurb = "Very fast replies; a good pick when speed matters more than photo detail.",
             encodeMsAt448 = 6200,
         ),
         CatalogModel(
@@ -82,7 +82,7 @@ object ModelCatalog {
             sampling = SamplingDefaults(temperature = 1.0f, topP = 0.95f, topK = 64, minP = 0f),
             imageTokensMin = 70, imageTokensMax = 560, dynamicResolution = false, maxImageEdgePx = 896, encoderPeakBytes = 500 * MB,
             estTgTps = "8-11",   // measured 2026-09-16 at sustained clocks: pp 72.0 / tg 8.8
-            blurb = "Highest answer quality; the cheapest image encoder of the list (2.6 s).",
+            blurb = "Highest answer quality, and the quickest at looking at a photo.",
             encodeMsAt448 = 2600,
         ),
         CatalogModel(
@@ -96,7 +96,7 @@ object ModelCatalog {
             thinking = ThinkingSpec(), sampling = lfmSampling.copy(temperature = 0.2f),
             imageTokensMin = 64, imageTokensMax = 256, dynamicResolution = true, maxImageEdgePx = 512, encoderPeakBytes = 250 * MB,
             estTgTps = "9-12",   // measured 2026-09-16 at sustained clocks: pp 62.6 / tg 9.7
-            blurb = "Newest general vision model; best at screenshots and grounding.",
+            blurb = "Newest general vision model; best at screenshots and pointing at things in them.",
             encodeMsAt448 = 6200,
         ),
         CatalogModel(
@@ -122,7 +122,7 @@ object ModelCatalog {
             thinking = ThinkingSpec(), sampling = SamplingDefaults(temperature = 0.7f, topP = 0.8f, topK = 20, minP = 0f),
             imageTokensMin = 0, imageTokensMax = 512, dynamicResolution = true, maxImageEdgePx = 1536, encoderPeakBytes = 700 * MB,
             estTgTps = "16-18",   // measured 2026-09-16: pp 97.6 / tg 18.4
-            blurb = "Classic transformer, the safest fallback; large KV cache so context is capped.",
+            blurb = "The safest fallback; remembers less of a long chat than the others.",
         ),
         CatalogModel(
             id = "qwen3.5-4b-q4_0", displayName = "Qwen3.5 4B", family = ModelFamily.QWEN35, tier = ModelTier.QUALITY,
@@ -134,7 +134,7 @@ object ModelCatalog {
             thinking = qwenThinking, sampling = qwenSampling,
             imageTokensMin = 0, imageTokensMax = 512, dynamicResolution = true, maxImageEdgePx = 1024, encoderPeakBytes = 500 * MB,
             estTgTps = "6-7",
-            blurb = "Strongest reasoning and OCR of the general models; needs most of the phone's memory.",
+            blurb = "Strongest reasoning and text reading of the general models; needs most of the phone's memory.",
         ),
         CatalogModel(
             id = "lfm2.5-vl-450m-q8_0", displayName = "LFM2.5-VL 450M", family = ModelFamily.LFM2VL, tier = ModelTier.FASTEST,

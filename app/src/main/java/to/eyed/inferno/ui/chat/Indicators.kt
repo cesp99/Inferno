@@ -133,7 +133,7 @@ fun ReasoningPanel(reasoning: String, live: Boolean, thinkingMs: Long, modifier:
  * Thinking: the live reasoning panel. Streaming with no text yet: the loading indicator alone.
  */
 @Composable
-fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier) {
+fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier, tokenWords: Boolean = true) {
     when (gen) {
         is GenState.Prefill -> {
             var shown by remember { mutableStateOf(false) }
@@ -142,7 +142,8 @@ fun ThinkingIndicator(gen: GenState, modifier: Modifier = Modifier) {
             val label = when {
                 gen.encodingImage && gen.expectedMs > 0 -> "${S.readingImage} · ~${(gen.expectedMs + 999) / 1000} s"
                 gen.encodingImage -> S.readingImage
-                gen.total > 0 -> S.readingTokens(gen.total)
+                gen.total > 0 && tokenWords -> S.readingTokens(gen.total)
+                gen.total > 0 -> S.readingMessages
                 else -> S.preparing
             }
             Row(modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

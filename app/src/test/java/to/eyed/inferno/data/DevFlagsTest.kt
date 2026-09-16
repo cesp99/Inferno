@@ -18,10 +18,30 @@ class DevFlagsTest {
     }
 
     @Test fun masterSwitchAndSubToggleCombine() {
-        val on = SettingsState(developerMode = true)
+        val on = SettingsState(experienceLevel = ExperienceLevel.DEVELOPER)
+        assertTrue(on.developerMode)
         assertTrue(on.devBenchmark)
         assertFalse(DevFlag.BENCHMARK.set(on, false).devBenchmark)
         assertTrue(DevFlag.BENCHMARK.set(on, false).devContextMeter)
+    }
+
+    @Test fun powerUserGetsTheRingButNoneOfTheDeveloperNumbers() {
+        val power = SettingsState(experienceLevel = ExperienceLevel.POWER)
+        assertTrue(power.powerUser)
+        assertFalse(power.developerMode)
+        assertTrue(power.showsContextRing)
+        assertFalse(power.devContextMeter); assertFalse(power.devGenerationStats); assertFalse(power.devThermalInfo)
+        assertFalse(power.devModelTechSpecs); assertFalse(power.devBenchmark); assertFalse(power.devTokenCounter); assertFalse(power.devTurnDetails)
+        val normal = SettingsState()
+        assertFalse(normal.powerUser)
+        assertFalse(normal.showsContextRing)
+    }
+
+    @Test fun developerCanStillSwitchTheRingOff() {
+        val dev = SettingsState(experienceLevel = ExperienceLevel.DEVELOPER)
+        assertTrue(dev.powerUser)
+        assertTrue(dev.showsContextRing)
+        assertFalse(DevFlag.CONTEXT_METER.set(dev, false).showsContextRing)
     }
 
     @Test fun metaLineHidesNumbersForNormalUsers() {

@@ -53,9 +53,9 @@ import to.eyed.inferno.ui.theme.layoutSpec
 import to.eyed.inferno.vm.AppViewModel
 import java.util.Locale
 
-// Settings > Developer. The master switch is off by default so a normal user never meets tok/s, rings or
-// timings; the sub-toggles pick which developer surfaces come back once it is on. The read-only Engine card
-// at the bottom is the one place that names build tags, buffer types, threads and thermal state together.
+// Settings > Developer, reachable only at ExperienceLevel.DEVELOPER (the Experience card in Settings is the
+// master switch). The sub-toggles pick which developer surfaces show; the read-only Engine card at the bottom is
+// the one place that names build tags, buffer types, threads and thermal state together.
 
 /** Verbose / Info / Warn -> android.util.Log priorities that InferenceEngine.minLogPriority understands. */
 private val LOG_LEVELS = listOf(2 to S.logVerbose, 4 to S.logInfo, 5 to S.logWarn)
@@ -65,7 +65,7 @@ private val LOG_LEVELS = listOf(2 to S.logVerbose, 4 to S.logInfo, 5 to S.logWar
 fun DeveloperNavRow(appVm: AppViewModel) {
     val s by appVm.settings.collectAsStateWithLifecycle()
     var open by rememberSaveable { mutableStateOf(false) }
-    NavRow(S.developer, if (s.developerMode) S.on else S.off, onClick = { open = true }, description = S.developerRowDesc)
+    NavRow(S.developer, null, onClick = { open = true }, description = S.developerRowDesc)
     if (open) InfernoSheet(onDismiss = { open = false }, wide = true) {
         Column(Modifier.verticalScroll(rememberScrollState())) { DeveloperPage(appVm, onBack = { open = false }) }
     }
@@ -78,28 +78,22 @@ fun DeveloperPage(appVm: AppViewModel, onBack: () -> Unit, modifier: Modifier = 
     val thermal by appVm.thermalStatus.collectAsStateWithLifecycle()
     val sustained by appVm.sustainedMode.collectAsStateWithLifecycle()
     val plan by appVm.loadPlan.collectAsStateWithLifecycle()
-    val on = s.developerMode
 
     Column(modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
         SheetHeader(S.developer, Lucide.ArrowLeft, onLeading = onBack, leadingDescription = S.back)
-        SettingsCard {
-            ToggleRow(S.developerMode, on, appVm::setDeveloperMode, description = S.developerModeDesc)
-        }
-
-        // Sub-toggles stay visible but dimmed while the master is off, so it is clear what the switch brings back.
-        SectionHeader(S.devShowSection)
+        SectionHeader(S.devShowSection, Modifier.padding(top = 0.dp))
         SettingsCard {
             DevFlag.entries.forEachIndexed { i, flag ->
                 if (i > 0) CardDivider()
                 val (title, desc) = flagLabels(flag)
-                ToggleRow(title, flag.get(s), { appVm.setDevFlag(flag, it) }, description = desc, enabled = on)
+                ToggleRow(title, flag.get(s), { appVm.setDevFlag(flag, it) }, description = desc)
             }
         }
 
         SectionHeader(S.engineLogSection)
         SettingsCard {
-            ControlRow(S.engineLogLevel, description = S.engineLogLevelDesc, enabled = on) {
-                ConnectedGroup(LOG_LEVELS.map { it.second }, LOG_LEVELS.indexOfFirst { it.first == s.minLogPriority }, { appVm.setMinLogPriority(LOG_LEVELS[it].first) }, enabled = on)
+            ControlRow(S.engineLogLevel, description = S.engineLogLevelDesc) {
+                ConnectedGroup(LOG_LEVELS.map { it.second }, LOG_LEVELS.indexOfFirst { it.first == s.minLogPriority }, { appVm.setMinLogPriority(LOG_LEVELS[it].first) })
             }
         }
 

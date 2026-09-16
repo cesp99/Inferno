@@ -42,18 +42,19 @@ import to.eyed.inferno.vm.AppViewModel
 import to.eyed.inferno.vm.ChatViewModel
 import androidx.core.net.toUri
 
-// Settings > Advanced / About / Danger zone / footer (spec 5.6). The engine knobs the research already answered
-// live here with a measured line above them; changing any of them turns the Performance group to "Custom".
+// Settings > Advanced (developer tier) / About / Danger zone / footer (spec 5.6).
 
 private val THREAD_OPTIONS = listOf(1, 2, 3, 4, 6, 8)
 private val POLL_OPTIONS = listOf(0, 50, 100)
 
-/** [developerRow] is the last row of the Advanced card (DeveloperPage.kt); the benchmark row and the log level moved behind it. */
+/**
+ * Settings > Advanced (developer tier only): the engine knobs the research already answered, the benchmark entry and
+ * the [developerRow] that opens the Developer page (DeveloperPage.kt). Changing any knob turns the Performance
+ * preset to "Custom".
+ */
 @Composable
-fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsState, onOpenBench: () -> Unit, onOpenLicences: () -> Unit, developerRow: @Composable () -> Unit) {
-    val context = LocalContext.current
+fun AdvancedSection(appVm: AppViewModel, s: SettingsState, onOpenBench: () -> Unit, developerRow: @Composable () -> Unit) {
     val quantizedKv = s.kvCache == KvCachePref.Q8_0 || s.kvCache == KvCachePref.Q4_0
-
     SectionHeader(S.advanced)
     SettingsCard {
         ControlRow(S.threads, description = S.bigCoresDetected(appVm.cpu.nBig)) {
@@ -81,7 +82,12 @@ fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsStat
         CardDivider()
         developerRow()
     }
+}
 
+/** About + Danger zone + the footer line, for every tier. [buildLine] (developer) swaps the plain version for the llama.cpp / sd.cpp build tags. */
+@Composable
+fun AboutAndDangerSections(appVm: AppViewModel, chatVm: ChatViewModel, onOpenLicences: () -> Unit, buildLine: Boolean) {
+    val context = LocalContext.current
     SectionHeader(S.about)
     SettingsCard {
         NavRow(S.openSourceLicences, null, onClick = onOpenLicences, description = S.licencesDesc)
@@ -102,7 +108,8 @@ fun AdvancedSections(appVm: AppViewModel, chatVm: ChatViewModel, s: SettingsStat
 
     Spacer(Modifier.height(28.dp))
     Text(
-        "v${BuildConfig.VERSION_NAME} · llama.cpp ${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)} · sd.cpp ${BuildConfig.SD_COMMIT.take(7)}",
+        if (buildLine) "v${BuildConfig.VERSION_NAME} · llama.cpp ${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)} · sd.cpp ${BuildConfig.SD_COMMIT.take(7)}"
+        else S.version("v${BuildConfig.VERSION_NAME}"),
         style = Typography.bodySmall, color = Ink.I500, modifier = Modifier.padding(horizontal = 8.dp),
     )
 }

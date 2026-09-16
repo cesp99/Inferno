@@ -63,7 +63,7 @@ class AppPrefsTest {
             calibration = mapOf("qwen3.5-2b-q4_0" to Calibration(86.6, 14.8, 2100, 1700000000000,
                 imageEncode = mapOf("BALANCED" to ImageEncodeSample(5200, 256)))),
             selectedImageModelId = "sdxs-512-q8_0", imageGenSecPerStep = mapOf("sdxs-512-q8_0:512" to 6.9f),
-            contextPolicy = ContextPolicy.STOP,
+            contextPolicy = ContextPolicy.STOP, experienceLevel = ExperienceLevel.POWER,
         )
         val scope1 = newScope()
         val p1 = prefs(scope1)

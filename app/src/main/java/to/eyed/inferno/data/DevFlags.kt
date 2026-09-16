@@ -14,8 +14,21 @@ enum class DevFlag(val get: (SettingsState) -> Boolean, val set: (SettingsState,
     TOKEN_COUNTER({ it.showTokenCounter }, { s, v -> s.copy(showTokenCounter = v) }),
 }
 
-// The readers every surface gates on: a sub-toggle counts only while the master switch is on, so a normal user
-// (developerMode = false, the default) sees none of the numbers even though the sub-toggles default to true.
+// ---- Tier readers (SettingsState.experienceLevel) ------------------------------------------------------------
+// Every surface gates on one of these, never on the enum directly, so the tier contents stay in one place:
+//   NORMAL     just chat: model, photos, storage, about.
+//   POWER      + context length and policy, system prompt, thinking, sampling, performance preset, Compact now,
+//              the context ring (no numbers), steps and seed on Create.
+//   DEVELOPER  + threads, cores, KV, mmap, poll, benchmark, the Developer page and everything the sub-toggles reveal.
+
+/** Power user or developer: the context / prompt / generation controls. */
+val SettingsState.powerUser: Boolean get() = experienceLevel >= ExperienceLevel.POWER
+
+/** The context ring in the model chip: always for a power user; a developer may switch it off (CONTEXT_METER). */
+val SettingsState.showsContextRing: Boolean get() = if (developerMode) showContextMeter else powerUser
+
+// The developer readers: a sub-toggle counts only at DEVELOPER, so a normal or power user (the defaults) sees none
+// of the numbers even though the sub-toggles default to true.
 val SettingsState.devGenerationStats: Boolean get() = developerMode && showGenerationStats
 val SettingsState.devContextMeter: Boolean get() = developerMode && showContextMeter
 val SettingsState.devTurnDetails: Boolean get() = developerMode && showTurnDetails
