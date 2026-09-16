@@ -10,11 +10,26 @@ plugins {
 // Both engines are git submodules; reading the pins at configure time keeps BuildConfig honest after a bump.
 val llamaDir = rootProject.file("third_party/llama.cpp")
 val sdDir = rootProject.file("third_party/stable-diffusion.cpp")
-fun gitIn(dir: File, vararg args: String): String =
-    providers.exec { commandLine("git", "-C", dir.path, *args) }.standardOutput.asText.get().trim()
-val llamaTag = gitIn(llamaDir, "describe", "--tags", "--abbrev=0")          // "b10991"
-val llamaCommit = gitIn(llamaDir, "rev-parse", "--short", "HEAD")           // "930e2fa"
-val sdCommit = gitIn(sdDir, "rev-parse", "--short", "HEAD")                 // "59c23bc"
+// Returns null when git is missing, the dir is not a repo, or the command fails (e.g. a depth-1 submodule
+// clone from actions/checkout has no tags, so `describe` exits 128). Configuration must never abort on that.
+fun gitIn(dir: File, vararg args: String): String? = runCatching {
+    providers.exec {
+        commandLine("git", "-C", dir.path, *args)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim().ifEmpty { null }
+}.getOrNull()
+
+// Fallback pins for shallow/tagless checkouts. Keep in sync when bumping the submodules
+// (ModelCatalogTest asserts minLlamaBuild <= LLAMA_BUILD_NUMBER, so the tag must stay real).
+val llamaTag = gitIn(llamaDir, "describe", "--tags", "--abbrev=0")
+    ?: "b10991".also { logger.warn("llama.cpp tag not resolvable from git; using fallback $it") }
+val llamaCommit = gitIn(llamaDir, "rev-parse", "--short", "HEAD") ?: "930e2fa"
+val sdCommit = gitIn(sdDir, "rev-parse", "--short", "HEAD") ?: "59c23bc"
+
+// Offline builds: -Pinferno.kleidiaiSrc=<extracted KleidiAI v1.24.0 dir> points both native modules at a
+// vendored copy instead of letting ggml's FetchContent download the tarball. llama.cpp's ggml declares the
+// dependency as `kleidiai`; stable-diffusion.cpp's ggml fork declares it as `KleidiAI_Download` (see :sdengine).
+val kleidiaiSrc: String? = providers.gradleProperty("inferno.kleidiaiSrc").orNull
 
 android {
     namespace = "to.eyed.inferno"
@@ -60,6 +75,9 @@ android {
                     "-DLLAMA_BUILD_COMMON=OFF",
                     "-DBUILD_SHARED_LIBS=OFF",
                 )
+                kleidiaiSrc?.let {
+                    arguments += listOf("-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=$it", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON")
+                }
                 // Cortex-A78/A55-class tuning: dotprod + fp16 arithmetic, no i8mm/SVE on the target SoC.
                 cFlags += listOf("-O3", "-march=armv8.2-a+dotprod+fp16", "-mtune=cortex-a78", "-fvisibility=hidden")
                 cppFlags += listOf("-O3", "-march=armv8.2-a+dotprod+fp16", "-mtune=cortex-a78", "-fvisibility=hidden", "-fvisibility-inlines-hidden")
@@ -84,6 +102,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // No store key exists for this open-source repo: release builds are signed with the debug keystore
+            // so `assembleRelease` yields an installable APK for testing R8 / resource shrinking / LTO on a device.
+            signingConfig = signingConfigs.getByName("debug")
             // Thin LTO only for release: a full LTO link of ggml+llama+mtmd+KleidiAI on every debug change costs minutes.
             externalNativeBuild { cmake { arguments += "-DINFERNO_LTO=ON" } }
         }

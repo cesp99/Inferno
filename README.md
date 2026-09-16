@@ -20,8 +20,10 @@ Package `to.eyed.inferno` · GPL-3.0 · Android 13+ · arm64-v8a only.
 
 Everything runs offline. The only network use is downloading model files from Hugging Face when you ask for them
 (metered networks trigger a confirmation). There is no telemetry, no analytics, no account and no cloud fallback.
-Chats, images and models live in the app's private storage (`allowBackup=false`, so they are never uploaded by
-Android auto-backup either).
+Chats, images and models live in the app's private storage. `allowBackup=false` keeps them out of Android cloud
+backup and `dataExtractionRules` (`res/xml/data_extraction_rules.xml`) also excludes them from device-to-device
+transfer, so nothing is copied off the phone by the system either (on Android 12+ `allowBackup=false` alone only
+covers cloud backup).
 
 ## Supported devices
 
@@ -54,7 +56,8 @@ the big cores, and flash attention.
 Measured decode speeds on the reference device (llama-bench, pp128/tg32, 4 pinned threads, cool phone):
 Qwen3-VL-2B Q4_0 97.6/18.4 · Qwen3.5-2B Q4_0 86.6/14.8 · MiniCPM-V 4.6 Q4_0 199/29.7 · LFM2.5-VL-1.6B Q4_0
 150/29.1 · Qwen3.5-0.8B Q8_0 244/21.5 t/s. Image encoding on the CPU costs 5-10 s per image at 448 px; a
-SD1.5-class diffusion step at 512 px costs ~13 s (SD-Turbo: 2 steps + TAESD decode = ~31 s per image).
+SD1.5-class diffusion step at 512 px costs ~13 s (DreamShaper 8 LCM: 4 steps + TAESD decode = ~63 s per image;
+the one-step SDXS-512 needs ~12 s).
 
 ## Build
 
@@ -62,8 +65,11 @@ Prerequisites:
 
 * JDK 17 on the host (`JAVA_HOME=/usr/lib/jvm/java-17-openjdk` or equivalent). The Gradle daemon itself runs on
   JDK 25, auto-provisioned through `gradle/gradle-daemon-jvm.properties` + the foojay resolver.
-* Android SDK with `platforms;android-37`, `build-tools;36.0.0`, **NDK 28.2.13676358** and **CMake 4.1.2**
-  (`sdkmanager "ndk;28.2.13676358" "cmake;4.1.2"`).
+* Android SDK with `platforms;android-37.1` (for `:app`, `compileSdk` 37 minor level 1, required by the alpha
+  Compose BOM) and `platforms;android-37.0` (for `:sdengine`), `build-tools;36.0.0`, **NDK 28.2.13676358** and
+  **CMake 4.1.2**:
+  `sdkmanager "platforms;android-37.0" "platforms;android-37.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;4.1.2"`.
+  Note the package is `platforms;android-37.0`, not `platforms;android-37`; the latter does not exist.
 * Git with submodule support. ImageMagick 7 only if you regenerate the launcher icons.
 
 ```bash
@@ -74,19 +80,32 @@ git submodule update --init --recursive        # llama.cpp (~1.2 GB) + stable-di
 ./gradlew :app:assembleRelease                 # R8 + resource shrinking + thin LTO for the native code
 ```
 
+There is no store signing key in this repository: the `release` build type is signed with the default debug
+keystore (`~/.android/debug.keystore`) so `assembleRelease` produces an installable APK for testing the minified
+build. Replace `signingConfig` in `app/build.gradle.kts` with your own key before distributing.
+
 Notes:
 
-* The first CMake configure fetches **KleidiAI v1.24.0** once over the network (ggml's `FetchContent`). For a
-  fully offline build, vendor it and pass
-  `-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=<dir> -DFETCHCONTENT_FULLY_DISCONNECTED=ON` through
-  `externalNativeBuild.cmake.arguments`.
+* Each native module's first CMake configure fetches **KleidiAI v1.24.0** over the network (ggml's
+  `FetchContent`): `:app` (llama.cpp's ggml) and `:sdengine` (stable-diffusion.cpp's ggml fork) each download the
+  same tarball into their own `.cxx` dir. For a fully offline build, extract the
+  [v1.24.0 source](https://github.com/ARM-software/kleidiai/archive/refs/tags/v1.24.0.tar.gz) once and pass its
+  directory to both modules with `./gradlew -Pinferno.kleidiaiSrc=/abs/path/kleidiai-1.24.0 :app:assembleDebug`.
+  The property maps to the FetchContent name each ggml declares (`-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI` for `:app`,
+  `-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI_DOWNLOAD` for `:sdengine`) plus `-DFETCHCONTENT_FULLY_DISCONNECTED=ON`; if
+  you set the CMake variables by hand, remember that the two names differ.
+* Shallow submodule clones (e.g. `actions/checkout` with the default `fetch-depth: 1`) have no reachable tags, so
+  `git describe` fails; the build then falls back to the pins hard-coded in `app/build.gradle.kts` for
+  `BuildConfig.LLAMA_TAG` / `LLAMA_COMMIT` / `SD_COMMIT` and prints a warning. Run
+  `git -C third_party/llama.cpp fetch --tags --depth=1` to get the real tag. A missing `git` binary is handled the
+  same way.
 * Kotlin is built into AGP 9; do not apply `org.jetbrains.kotlin.android`. Versions live in
   `gradle/libs.versions.toml` (AGP 9.4.0, Kotlin 2.4.20, KSP 2.3.12, Compose BOM alpha 2026.09.00 with
   material3 1.5.0-alpha28).
 * Native code is always built optimised (`RelWithDebInfo` + `-O3`, `-march=armv8.2-a+dotprod+fp16`), even in
   debug builds; only the Kotlin side is debuggable. `-DINFERNO_LTO=ON` is added for release.
-* `BuildConfig.LLAMA_TAG` / `LLAMA_COMMIT` / `SD_COMMIT` are read from the submodules at configure time and shown
-  in Settings > About.
+* `BuildConfig.LLAMA_TAG` / `LLAMA_COMMIT` / `SD_COMMIT` are read from the submodules at configure time (with the
+  fallback above) and shown in Settings > About.
 * Verify 16 KB alignment after a native change:
   `llvm-readelf -l app/build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib/arm64-v8a/libinferno.so | grep LOAD`
   (alignment `0x4000`) and `zipalign -c -P 16 -v 4 app-debug.apk`.
@@ -95,35 +114,39 @@ Notes:
 ## Model licences
 
 Model weights are downloaded on demand from Hugging Face and are **not** part of this repository or the APK.
-Each model's licence is shown on its card and in the download confirmation. The curated catalog (ranked) and
-its licences:
+Each model's licence is shown on its card and in the download confirmation. The shipped chat catalog
+(`app/src/main/java/to/eyed/inferno/models/ModelCatalog.kt`, picker order) and its licences:
 
-| # | Model (text + projector) | Publisher | Licence | Notes |
+| # | Model (text + projector) | Publisher (GGUF source) | Licence | Notes |
 |---|---|---|---|---|
-| 1 | Qwen3.5-2B Q4_0 | Alibaba (GGUF: unsloth) | Apache-2.0 | default pick; 14.8 t/s measured |
-| 2 | MiniCPM-V 4.6 Q4_0 + Q8_0 mmproj | OpenBMB (mmproj: ggml-org) | Apache-2.0 | fastest vision; 29.7 t/s measured |
-| 3 | LFM2.5-VL-1.6B Q4_0 | Liquid AI | LFM Open License v1.0 (non-OSI; free below Liquid's revenue threshold) | 29.1 t/s measured |
-| 4 | Gemma 4 E2B-it QAT Q4_0 + Q8_0 mmproj | Google (mmproj: ggml-org) | Apache-2.0 | best quality tier |
-| 5 | LFM2.5-VL-3B Q4_0 | Liquid AI | LFM Open License v1.0 (non-OSI) | strongest grounding |
-| 6 | Qwen3.5-0.8B Q8_0 | Alibaba (GGUF: unsloth) | Apache-2.0 | 21.5 t/s measured |
-| 7 | OvisOCR2 Q8_0 | ATH-MaaS (GGUF: bartowski) | Apache-2.0 | OCR specialist (reserved tier, not in v1 picker) |
-| 8 | PaddleOCR-VL-1.6 Q8_0 | Baidu | Apache-2.0 | OCR specialist (reserved tier, not in v1 picker) |
-| 9 | Qwen3.5-4B Q4_0 | Alibaba (GGUF: unsloth) | Apache-2.0 | context-capped (8k f16 / 16k q8 KV) |
-| 10 | Qwen3-VL-2B-Instruct Q4_0 | Alibaba (GGUF: unsloth / Qwen) | Apache-2.0 | safest fallback; 18.4 t/s measured |
-| 11 | LFM2.5-VL-450M Q8_0 | Liquid AI | LFM Open License v1.0 (non-OSI) | ultra-light |
-| 12 | HunyuanOCR-1.5 Q8_0 | Tencent | Tencent Hunyuan Community License (excludes EU/UK/KR) | not bundled or auto-downloaded; region-gated |
+| 1 | Qwen3.5-2B Q4_0 + F16 mmproj | Alibaba (unsloth) | Apache-2.0 | default pick; 14.8 t/s measured; optional thinking mode |
+| 2 | MiniCPM-V 4.6 Q4_0 + Q8_0 mmproj | OpenBMB (mmproj: ggml-org) | Apache-2.0 | fastest vision; 29.7 t/s measured; images capped at 448 px |
+| 3 | LFM2.5-VL-1.6B Q4_0 + Q8_0 mmproj | Liquid AI | LFM Open License v1.0 (non-OSI; free below Liquid's revenue threshold) | 29.1 t/s measured |
+| 4 | Gemma 4 E2B-it QAT Q4_0 + Q8_0 mmproj | Google (mmproj: ggml-org) | Apache-2.0 | best quality tier; 8.8 t/s at sustained clocks |
+| 5 | LFM2.5-VL-3B Q4_0 + Q8_0 mmproj | Liquid AI | LFM Open License v1.0 (non-OSI) | strongest grounding; 9.7 t/s at sustained clocks |
+| 6 | Qwen3.5-0.8B Q8_0 + F16 mmproj | Alibaba (unsloth) | Apache-2.0 | 21.5 t/s measured |
+| 7 | Qwen3-VL-2B-Instruct Q4_0 + Q8_0 mmproj | Alibaba (unsloth / Qwen) | Apache-2.0 | safest fallback; 18.4 t/s measured; large KV cache, context capped |
+| 8 | Qwen3.5-4B Q4_0 + F16 mmproj | Alibaba (unsloth) | Apache-2.0 | strongest reasoning/OCR; needs most of the phone's memory |
+| 9 | LFM2.5-VL-450M Q8_0 + Q8_0 mmproj | Liquid AI | LFM Open License v1.0 (non-OSI) | ultra-light |
 
-Image generation (stable-diffusion.cpp), 512 px, TAESD decoder:
+Not in the v1 catalog (reserved for a later `SPECIALIST` tier, no download offered): OvisOCR2 and PaddleOCR-VL-1.6
+(both Apache-2.0) and HunyuanOCR-1.5 (Tencent Hunyuan Community License, region-gated; would never be bundled or
+auto-downloaded).
 
-| Model | Licence | Notes |
-|---|---|---|
-| SD-Turbo (SD2.1-base distillation) q8_0 | Stability AI community licence (non-commercial) | 1-4 steps, ~31 s per image measured |
-| DreamShaper-8-LCM q8_0 | CreativeML OpenRAIL-M (SD1.5 derivative) | 4 steps, ~55 s sampling measured |
-| SDXS-512-DreamShaper q8_0 | CreativeML OpenRAIL-M | 1 step, smallest/fastest preview tier |
-| Anima-Turbo v1.1 Q4_0 (2B DiT + Qwen3-0.6B) | non-commercial (see model card) | quality tier, ~46 s per step |
+Image generation (stable-diffusion.cpp, `app/src/main/java/to/eyed/inferno/models/ImageModelCatalog.kt`), 512 px
+default; both models are SD 1.5-family and share one TAESD decoder (`madebyollin/taesd`, MIT):
 
-Always read the model card before use; the licence strings above are what the catalog shows and may lag upstream
-changes.
+| Model | Tier | Licence | Notes |
+|---|---|---|---|
+| DreamShaper 8 LCM q8_0 | Quality | CreativeML OpenRAIL-M | 4 steps (2-8), ~63 s per image measured (13.5 s/step + 3.8 s decode) |
+| SDXS-512 q8_0 (`sdxs-512-tinySDdistilled`) | Instant | OpenRAIL++ | 1 step, ~12 s per image measured |
+
+Evaluated on the reference device but not shipped: SD-Turbo q8_0 (~31 s/image but Stability AI non-commercial
+licence), Anima-Turbo v1.1 (~5 min/image, non-commercial), FLUX.2 klein 4B (12-16 min/image), Z-Image (4+ GB),
+SDXL-Lightning q4_0 (107 s, ~3 GB).
+
+Always read the model card before use; the licence strings for the shipped models above are exactly what the
+catalog shows (`ModelCatalog.models` / `ImageModelCatalog.models`) and may lag upstream changes.
 
 ## Licence
 

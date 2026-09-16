@@ -12,6 +12,10 @@ android {
     }
     ndkVersion = "28.2.13676358"
 
+    // Offline builds (same -Pinferno.kleidiaiSrc property as :app): sd.cpp's ggml fork declares KleidiAI as
+    // `KleidiAI_Download`, so the FetchContent override variable differs from llama.cpp's `kleidiai`.
+    val kleidiaiSrc: String? = providers.gradleProperty("inferno.kleidiaiSrc").orNull
+
     defaultConfig {
         minSdk = 33
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -30,6 +34,9 @@ android {
                     "-DGGML_BACKEND_DL=OFF",
                     "-DCMAKE_BUILD_TYPE=Release",
                 )
+                kleidiaiSrc?.let {
+                    arguments += listOf("-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI_DOWNLOAD=$it", "-DFETCHCONTENT_FULLY_DISCONNECTED=ON")
+                }
                 cppFlags += listOf("-O3", "-fvisibility=hidden", "-fvisibility-inlines-hidden")
                 cFlags += listOf("-O3", "-fvisibility=hidden")
             }
