@@ -150,6 +150,12 @@ class ImageEngine(
                     withContext(dispatcher) { SdNative.unload() }
                     loadedSpec = null
                     send(ImageGenEvent.Error("Not enough memory"))
+                } else {
+                    // A cancel that did not come from this collector (a stale native flag, a cancel() racing the
+                    // start of the run): still exactly one terminal event, or the caller waits for a Done that
+                    // never comes.
+                    Log.w(TAG, "native job cancelled without a collector cancel")
+                    send(ImageGenEvent.Error("Image generation was cancelled"))
                 }
                 else -> send(ImageGenEvent.Error(SdNative.lastError().ifEmpty { "Image generation failed" }))
             }

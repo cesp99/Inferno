@@ -95,7 +95,11 @@ class ImageGenRepository(
 
     /** Requests cancellation; the native job is aborted within one step and joined by the flow's finally. */
     fun cancel() {
-        job?.cancel()
+        val j = job
+        j?.cancel()
+        // Nothing running but the UI still says busy (a run that ended without a terminal event): settle it here,
+        // so the Stop button always does something visible.
+        if ((j == null || j.isCompleted) && _state.value.let { it is ImageGenUiState.Loading || it is ImageGenUiState.Generating }) _state.value = ImageGenUiState.Idle
     }
 
     suspend fun cancelAndJoin() {
@@ -143,6 +147,12 @@ class ImageGenRepository(
                     previews = steps > 1,
                 )
                 collectRun(model, params, req)
+                // The flow contract is exactly one Done / Error; should it ever end without one, the screen must
+                // not sit on "Starting" forever with a Stop button that does nothing.
+                if (_state.value.let { it is ImageGenUiState.Loading || it is ImageGenUiState.Generating }) {
+                    log("image run ended without a terminal event")
+                    _state.value = ImageGenUiState.Error(Msg.FAILED)
+                }
             }
         } catch (e: CancellationException) {
             _state.value = ImageGenUiState.Idle
@@ -241,6 +251,11 @@ class ImageGenRepository(
     }
 
     private class ImageGenException(message: String) : Exception(message)
+
+    /** android.util.Log throws under the host JVM (unit tests); fall back to println there. */
+    private fun log(msg: String) {
+        try { android.util.Log.w("Inferno/ImageGen", msg) } catch (e: RuntimeException) { println("W Inferno/ImageGen: $msg") }
+    }
 
     /** UI strings live in ui/Strings.kt (WP6); these are the data-layer messages that end up in Error(). */
     private object Msg {
