@@ -84,6 +84,11 @@ There is no store signing key in this repository: the `release` build type is si
 keystore (`~/.android/debug.keystore`) so `assembleRelease` produces an installable APK for testing the minified
 build. Replace `signingConfig` in `app/build.gradle.kts` with your own key before distributing.
 
+Release APK size on `arm64-v8a`: **46 MB** (debug: 126 MB). Of that, 37 MB is `libinferno_sd.so`
+(stable-diffusion.cpp with its own ggml) and 5 MB is `libinferno.so`; the Kotlin/Compose code shrinks to a
+single 3.9 MB dex. R8 keep rules in `app/proguard-rules.pro` and `sdengine/consumer-rules.pro` preserve every
+JNI entry point and the callback interfaces that the native side resolves by name.
+
 Notes:
 
 * Each native module's first CMake configure fetches **KleidiAI v1.24.0** over the network (ggml's
