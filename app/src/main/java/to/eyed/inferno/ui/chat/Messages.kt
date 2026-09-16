@@ -3,6 +3,7 @@ package to.eyed.inferno.ui.chat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.combinedClickable
@@ -41,6 +42,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.composables.icons.lucide.Copy
@@ -65,6 +67,7 @@ import to.eyed.inferno.ui.theme.Radii
 import to.eyed.inferno.ui.theme.RowMeta
 import to.eyed.inferno.ui.theme.Typography
 import to.eyed.inferno.ui.theme.defaultEffectsSpec
+import to.eyed.inferno.ui.theme.defaultSpatialSpec
 import to.eyed.inferno.ui.theme.rememberHaptics
 import to.eyed.inferno.vm.GenState
 import to.eyed.inferno.vm.isBusy
@@ -106,17 +109,22 @@ fun SharedTransitionScope.MessagesList(
     onOpenTurnDetails: (ChatMessage) -> Unit,
     onEdit: (ChatMessage) -> Unit,
     modifier: Modifier = Modifier,
+    /** Height of the composer overlaid on the list, so the last turn can always scroll clear of it. */
+    bottomInset: Dp = 132.dp,
 ) {
     val live = liveFor(messages, gen)
     val lastAssistantId = messages.lastOrNull { it.role == ChatRepository.ROLE_ASSISTANT }?.id
     BoxWithConstraints(modifier) {
         val sidePad = ((maxWidth - ChatContentMaxWidth) / 2).coerceAtLeast(0.dp) + 16.dp
         val bubbleMax = if (maxWidth >= 600.dp) 460.dp else 300.dp
+        // Placement springs make a send glide; while an answer streams the live item grows every frame, and
+        // a lagging spring would drag the rows above it over the new text, so they snap instead.
+        val placement: FiniteAnimationSpec<IntOffset>? = if (gen.isBusy) null else defaultSpatialSpec()
         LazyColumn(
             state = listState,
             reverseLayout = true,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = sidePad, end = sidePad, top = 12.dp, bottom = 132.dp),
+            contentPadding = PaddingValues(start = sidePad, end = sidePad, top = 12.dp, bottom = bottomInset),
             verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.Bottom),
         ) {
             if (live is Live.Item) item(key = "live", contentType = "live") {
@@ -132,7 +140,7 @@ fun SharedTransitionScope.MessagesList(
                 val m = messages[i]
                 item(key = m.id, contentType = m.role) {
                     if (m.role == ChatRepository.ROLE_USER) {
-                        UserBubble(m, bubbleMax, imageScope, onOpenImage, onEdit, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null))
+                        UserBubble(m, bubbleMax, imageScope, onOpenImage, onEdit, Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement))
                     } else {
                         val streamingRow = (live as? Live.Row)?.id == m.id
                         val s = gen as? GenState.Streaming
@@ -148,7 +156,7 @@ fun SharedTransitionScope.MessagesList(
                             announce = m.id == announceId,
                             onRegenerate = onRegenerate,
                             onDetails = { onOpenTurnDetails(m) },
-                            modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null),
+                            modifier = Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = placement),
                         )
                     }
                 }

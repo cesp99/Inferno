@@ -15,14 +15,18 @@ import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.DrawerValue
@@ -35,6 +39,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,7 +50,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -68,6 +76,7 @@ import to.eyed.inferno.ui.components.InfernoSheet
 import to.eyed.inferno.ui.components.PrimaryButton
 import to.eyed.inferno.ui.components.SheetHeader
 import to.eyed.inferno.ui.models.ModelSheet
+import to.eyed.inferno.ui.theme.Ink
 import to.eyed.inferno.ui.theme.defaultEffectsSpec
 import to.eyed.inferno.ui.theme.defaultSpatialSpec
 import to.eyed.inferno.ui.theme.fastSpatialSpec
@@ -116,6 +125,7 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     var modelSheet by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf<String?>(null) }
     var announceId by remember { mutableStateOf<String?>(null) }
+    var composerHeight by remember { mutableIntStateOf(0) }
     var dismissedError by remember { mutableStateOf<GenState.Error?>(null) }
 
     val loaded = engine.loadedAny
@@ -211,8 +221,9 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     val openNav: () -> Unit = { if (expanded) paneVisible = !paneVisible else scope.launch { drawerState.open() } }
     val go: (Screen) -> Unit = { s -> closeNav(); appVm.navigate(s) }
 
-    val sidebar: @Composable () -> Unit = {
+    val sidebar: @Composable (Modifier) -> Unit = { m ->
         Sidebar(
+            modifier = m,
             conversations = conversations, activeId = activeId, busyIds = busyIds,
             loadedModelName = loaded?.model?.displayName, deviceSummary = appVm.deviceSummary,
             onSelect = { id -> chatVm.open(id); closeNav() },
@@ -266,29 +277,34 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
                                 onRegenerate = chatVm::regenerate, onOpenImage = { viewerId = it.id },
                                 onOpenTurnDetails = { detailsId = it.id }, onEdit = { editId = it.id },
                                 modifier = Modifier.fillMaxSize(),
+                                // The composer starts with a 32 dp gradient; the last turn rests 8 dp into it, so it never fades yet still scrolls under.
+                                bottomInset = if (composerHeight == 0) 132.dp else with(LocalDensity.current) { composerHeight.toDp() } - 8.dp,
                             )
                         }
                         Column(Modifier.align(Alignment.BottomCenter).widthIn(max = ChatContentMaxWidth), horizontalAlignment = Alignment.CenterHorizontally) {
                             AnimatedVisibility(showJump, enter = fadeIn(defaultEffectsSpec()), exit = fadeOut(defaultEffectsSpec())) {
                                 GlassButton(S.jumpToLatest, icon = Lucide.ChevronDown, onClick = { scope.launch { listState.animateScrollToItem(0) } })
                             }
-                            if (contextLimit) {
-                                ContextLimitPanel(
-                                    used = usage.used, nCtx = usage.nCtx,
-                                    onNewChat = { chatVm.newChat(); draft = "" },
-                                    onTrim = { appVm.setAutoTrim(true) },
-                                    modifier = Modifier.padding(12.dp),
-                                )
-                            } else {
-                                InputBar(
-                                    value = draft, onValueChange = { draft = it },
-                                    attachments = pending, onRemoveAttachment = chatVm::removeAttachment,
-                                    canAttachImages = canAttachImages, cameraAvailable = cameraAvailable, noVisionReason = noVisionReason,
-                                    onPickPhotos = pickPhotos, onCapturePhoto = capturePhoto, onNoVision = appVm::notice,
-                                    gen = gen, engine = engine, disabledReason = disabledReason, imageBusy = imageBusy,
-                                    onSend = send, onStop = chatVm::cancel,
-                                    thinkingAvailable = thinkingAvailable, thinkingOn = settings.thinking, onToggleThinking = appVm::setThinking,
-                                )
+                            // Measured (not the jump pill: it comes and goes while reading and must not shift the list).
+                            Box(Modifier.fillMaxWidth().onSizeChanged { composerHeight = it.height }) {
+                                if (contextLimit) {
+                                    ContextLimitPanel(
+                                        used = usage.used, nCtx = usage.nCtx,
+                                        onNewChat = { chatVm.newChat(); draft = "" },
+                                        onTrim = { appVm.setAutoTrim(true) },
+                                        modifier = Modifier.padding(12.dp),
+                                    )
+                                } else {
+                                    InputBar(
+                                        value = draft, onValueChange = { draft = it },
+                                        attachments = pending, onRemoveAttachment = chatVm::removeAttachment,
+                                        canAttachImages = canAttachImages, cameraAvailable = cameraAvailable, noVisionReason = noVisionReason,
+                                        onPickPhotos = pickPhotos, onCapturePhoto = capturePhoto, onNoVision = appVm::notice,
+                                        gen = gen, engine = engine, disabledReason = disabledReason, imageBusy = imageBusy,
+                                        onSend = send, onStop = chatVm::cancel,
+                                        thinkingAvailable = thinkingAvailable, thinkingOn = settings.thinking, onToggleThinking = appVm::setThinking,
+                                    )
+                                }
                             }
                         }
                         (gen as? GenState.Error)?.takeIf { it != dismissedError }?.let { err ->
@@ -299,19 +315,29 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
             }
             if (expanded) {
                 Row(Modifier.fillMaxSize()) {
-                    AnimatedVisibility(paneVisible, enter = expandHorizontally(defaultSpatialSpec()), exit = shrinkHorizontally(defaultSpatialSpec())) { sidebar() }
+                    AnimatedVisibility(paneVisible, enter = expandHorizontally(defaultSpatialSpec()), exit = shrinkHorizontally(defaultSpatialSpec())) { sidebar(Modifier) }
                     Box(Modifier.weight(1f)) { chatContent() }
                 }
             } else {
+                // The root already applied safeDrawingPadding; the drawer alone reaches back under the status and
+                // navigation bars (its surface and scrim would otherwise stop at the safe edge) and re-pads its content.
+                val safe = WindowInsets.safeDrawing
+                val density = LocalDensity.current
+                val topInset = with(density) { safe.getTop(this).toDp() }
+                val bottomInset = with(density) { safe.getBottom(this).toDp() }
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     scrimColor = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier.bleedVertically(safe),
                     drawerContent = {
-                        // Transparent, square sheet: the Sidebar's own I900 column is the visible surface; the root
-                        // already applied safeDrawingPadding, so no insets here.
-                        ModalDrawerSheet(drawerState, drawerContainerColor = Color.Transparent, drawerShape = RectangleShape, windowInsets = WindowInsets(0)) { sidebar() }
+                        // Transparent, square sheet: the Sidebar's own I900 column is the visible surface.
+                        ModalDrawerSheet(drawerState, drawerContainerColor = Color.Transparent, drawerShape = RectangleShape, windowInsets = WindowInsets(0)) {
+                            Box(Modifier.fillMaxHeight().width(SidebarWidth).background(Ink.I900)) {
+                                sidebar(Modifier.padding(top = topInset, bottom = bottomInset))
+                            }
+                        }
                     },
-                ) { chatContent() }
+                ) { Box(Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset)) { chatContent() } }
             }
         }
         AnimatedVisibility(visible = viewerAtt != null, enter = fadeIn(defaultEffectsSpec()), exit = fadeOut(defaultEffectsSpec())) {
@@ -350,4 +376,12 @@ private fun TextSheet(title: String, label: String, initial: String, action: Str
             PrimaryButton(action, enabled = text.isNotBlank(), onClick = { onSubmit(text.trim()) }, modifier = Modifier.fillMaxWidth())
         }
     }
+}
+
+/** Grows the node by the vertical [insets] and shifts it up by the top one: a child that must reach under the bars inside an already safe-padded parent. */
+private fun Modifier.bleedVertically(insets: WindowInsets): Modifier = layout { measurable, constraints ->
+    val top = insets.getTop(this)
+    val extra = top + insets.getBottom(this)
+    val placeable = measurable.measure(constraints.copy(minHeight = constraints.minHeight + extra, maxHeight = constraints.maxHeight + extra))
+    layout(placeable.width, constraints.maxHeight) { placeable.place(0, -top) }
 }

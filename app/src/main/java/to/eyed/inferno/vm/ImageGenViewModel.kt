@@ -72,7 +72,9 @@ class ImageGenViewModel(private val c: AppContainer, private val handle: SavedSt
         // Prefs may not have been read when the VM was created: adopt the persisted choice once they land.
         viewModelScope.launch {
             c.prefs.loaded.first { it }
-            c.prefs.settings.value.selectedImageModelId?.let { id -> if (catalog.any { it.id == id }) _modelId.value = id }
+            val persisted = c.prefs.settings.value.selectedImageModelId?.takeIf { id -> catalog.any { it.id == id } }
+            // Nothing chosen yet: start on a model that is already on disk rather than on a 1.8 GB download.
+            _modelId.value = persisted ?: catalog.firstOrNull { c.imageGen.isDownloaded(it) }?.id ?: _modelId.value
         }
     }
 

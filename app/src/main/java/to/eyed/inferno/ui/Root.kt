@@ -185,7 +185,8 @@ private fun Screens(appVm: AppViewModel, chatVm: ChatViewModel, benchVm: BenchVi
             val forward = targetState != Screen.CHAT && (initialState == Screen.CHAT || targetState == Screen.GALLERY)
             val enter = slideInHorizontally(slide) { if (forward) it / 4 else -it / 4 } + fadeIn(fade)
             val exit = slideOutHorizontally(slide) { if (forward) -it / 4 else it / 4 } + fadeOut(fade)
-            enter togetherWith exit
+            // No SizeTransform: its default clip would cut the chat drawer that bleeds under the bars.
+            (enter togetherWith exit).using(null)
         },
         label = "screen",
         modifier = Modifier.fillMaxSize().graphicsLayer {
