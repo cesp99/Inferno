@@ -228,6 +228,11 @@ class InferenceEngine internal constructor(
     /** EngineCoordinator (imagegen): the LLM must be out of memory before stable-diffusion.cpp allocates (12.5). */
     override suspend fun releaseForImageGen() = unload()
 
+    /** models.EngineAccess: the no_alloc estimate cache keeps the GGUF open, so a delete drops it first (engine thread). */
+    suspend fun clearEstimateCache() = EngineJob.withJob("llm-estimate-clear") {
+        withContext(engine) { if (backendReady) native.estimateCacheClear() }
+    }
+
     suspend fun setSampling(params: GenerationParams) = EngineJob.withJob("llm-sampling") {
         withContext(engine) {
             this@InferenceEngine.params = params

@@ -168,7 +168,8 @@ class ModelRepository(
         val imageReady = imageCatalog.filter { files.isDownloaded(it.downloads) }.map { it.id }.toSet()
         val progress = HashMap<String, Long>()
         for (m in catalog) if (scan.models.none { it.id == m.id }) presentBytes(m.downloads)?.let { progress[m.id] = it }
-        for (m in imageCatalog) if (m.id !in imageReady) presentBytes(m.downloads)?.let { progress[m.id] = it }
+        // Only this model's own directory counts: the shared TAESD file being complete must not read as "Paused".
+        for (m in imageCatalog) if (m.id !in imageReady) presentBytes(m.downloads.filter { it.subdir == m.id })?.let { progress[m.id] = it }
         snapshot.value = Snapshot(scan.models, imageReady, progress)
         _storage.value = files.storageInfo()
     }
