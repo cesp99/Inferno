@@ -352,6 +352,7 @@ void Engine::take_checkpoint() {
     }
     Checkpoint c;
     c.n_tokens = cache_.size();
+    c.pos_min  = llama_memory_seq_pos_min(llama_get_memory(ctx_), 0);   // iSWA reports the SWA cache's minimum
     c.pos_max  = llama_memory_seq_pos_max(llama_get_memory(ctx_), 0);
     c.data.resize(size);
     const size_t n = llama_state_seq_get_data_ext(ctx_, c.data.data(), size, 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
@@ -364,7 +365,8 @@ void Engine::take_checkpoint() {
     while (ckpts_.size() > MAX_CHECKPOINTS) {
         ckpts_.erase(ckpts_.begin());
     }
-    LOGD("checkpoint: n_tokens=%zu pos_max=%d bytes=%zu", cache_.size(), (int) ckpts_.back().pos_max, n);
+    LOGD("checkpoint: n_tokens=%zu pos_min=%d pos_max=%d bytes=%zu", cache_.size(), (int) ckpts_.back().pos_min,
+         (int) ckpts_.back().pos_max, n);
 }
 
 bool Engine::rewind_to(size_t & n_target) {
@@ -376,15 +378,25 @@ bool Engine::rewind_to(size_t & n_target) {
     if (n_target == cache_.size() && llama_memory_seq_pos_max(mem, 0) + 1 == p0) {
         return true;                                                     // nothing to remove
     }
-    if (llama_memory_seq_rm(mem, 0, p0, -1)) {                           // pure attention, or n_rs_seq rewind
-        truncate_cache(n_target);
+    // iSWA (swa_full=false): seq_rm never refuses, but the SWA ring only holds ~n_swa+n_ubatch positions and
+    // decoding at p0 needs [p0-n_swa, p0) in the SWA layers, so mirror llama-server's pos_min check. A short
+    // window leaves the base cache untouched until a checkpoint's SWA state is restored below.
+    const int32_t n_swa = (cparams_.swa_full || !model_) ? 0 : llama_model_n_swa(model_);
+    auto swa_window_ok = [&](llama_pos pos_min, llama_pos pos_resume) {
+        return n_swa <= 0 || pos_min <= 0 || pos_min <= std::max<llama_pos>(0, pos_resume - n_swa);
+    };
+    if (swa_window_ok(llama_memory_seq_pos_min(mem, 0), p0) && llama_memory_seq_rm(mem, 0, p0, -1)) {
+        truncate_cache(n_target);                                        // pure attention, or n_rs_seq rewind
         return true;
     }
-    // Refused (hybrid / recurrent / SWA partial removal): restore the newest checkpoint at or below the
+    // Refused (hybrid / recurrent) or SWA window incomplete: restore the newest checkpoint at or below the
     // target and re-decode from there.
     for (auto it = ckpts_.rbegin(); it != ckpts_.rend(); ++it) {
         if (it->n_tokens > n_target) {
             continue;
+        }
+        if (!swa_window_ok(it->pos_min, it->pos_max + 1)) {
+            continue;                                                    // its own SWA window is already incomplete
         }
         const size_t r = llama_state_seq_set_data_ext(ctx_, it->data.data(), it->data.size(), 0, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
         if (r == 0) {
@@ -432,6 +444,9 @@ void Engine::kv_clear() {
     n_past_ = 0;
     if (smpl_) {
         llama_sampler_reset(smpl_);
+    }
+    if (grmr_) {
+        llama_sampler_reset(grmr_);
     }
 }
 
@@ -538,7 +553,11 @@ int Engine::generate_start(const std::vector<ChatMsg> & msgs, const std::vector<
             n_keep = it->first;
         }
     }
-    // 2. pre-encode memory check for the images that are not cached yet
+    // 2. drop the stale suffix (seq_rm, checkpoint restore, or full clear); n_keep may shrink
+    rewind_to(n_keep);
+    // 3. pre-encode memory check for the images that will actually be (re-)encoded. Done after the rewind so
+    // a checkpoint restore / full clear that forces a re-encode cannot bypass it; returning here is safe
+    // because rewind_to leaves cache_/cache_media_/n_past_ consistent with the KV memory.
     bool needs_encode = false;
     for (const auto & [idx, m] : p.media) {
         if (idx >= n_keep) needs_encode = true;
@@ -551,8 +570,6 @@ int Engine::generate_start(const std::vector<ChatMsg> & msgs, const std::vector<
             return -5;
         }
     }
-    // 3. drop the stale suffix (seq_rm, checkpoint restore, or full clear); n_keep may shrink
-    rewind_to(n_keep);
     n_prompt_ = (int) p.tokens.size();
     n_reused_ = (int) n_keep;
 
@@ -626,8 +643,12 @@ int Engine::generate_start(const std::vector<ChatMsg> & msgs, const std::vector<
         return -3;
     }
 
-    // 5. sampler sees the newly evaluated text tokens (penalties / DRY history)
+    // 5. sampler sees the newly evaluated text tokens (penalties / DRY history). The grammar is only reset:
+    // feeding it prompt tokens would empty its stacks (std::runtime_error / GGML_ABORT), like common_sampler.
     llama_sampler_reset(smpl_);
+    if (grmr_) {
+        llama_sampler_reset(grmr_);
+    }
     for (size_t k = n_keep; k < cache_.size(); k++) {
         if (cache_[k] != LLAMA_TOKEN_NULL) {
             llama_sampler_accept(smpl_, cache_[k]);
@@ -660,7 +681,26 @@ bool Engine::generate_next(std::string & piece_out) {
         return false;
     }
     const int64_t t0 = ggml_time_us();
-    const llama_token id = llama_sampler_sample(smpl_, ctx_, -1);          // applies the chain + accepts
+    llama_token id;
+    if (!grmr_) {
+        id = llama_sampler_sample(smpl_, ctx_, -1);                        // applies the chain + accepts
+    } else {
+        // Grammar path (common_sampler order): constrain the candidates first, then run the chain, and only
+        // feed the generated token to the grammar (never prompt tokens, see generate_start step 5).
+        const float * logits = llama_get_logits_ith(ctx_, -1);
+        const int n_vocab = llama_vocab_n_tokens(vocab_);
+        cur_.resize((size_t) n_vocab);
+        for (int t = 0; t < n_vocab; t++) {
+            cur_[(size_t) t] = { t, logits[t], 0.0f };
+        }
+        llama_token_data_array cur_p = { cur_.data(), cur_.size(), -1, false };
+        llama_sampler_apply(grmr_, &cur_p);
+        llama_sampler_apply(smpl_, &cur_p);
+        GGML_ASSERT(cur_p.selected >= 0 && cur_p.selected < (int64_t) cur_p.size);
+        id = cur_p.data[cur_p.selected].id;
+        llama_sampler_accept(smpl_, id);
+        llama_sampler_accept(grmr_, id);
+    }
     if (llama_vocab_is_eog(vocab_, id)) {
         finish_ = Finish::eos;                                             // EOS is not decoded into the KV
         take_checkpoint();

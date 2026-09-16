@@ -140,7 +140,8 @@ private:
         std::map<size_t, mtmd::input_chunk_ptr>  chunks;     // start idx -> owned image chunk copy (encode data)
         size_t                                   n_prefix = 0;   // trailing assistant-prefix tokens
     };
-    struct Checkpoint { size_t n_tokens = 0; llama_pos pos_max = 0; std::vector<uint8_t> data; };
+    // pos_min: SWA-cache minimum at capture time (iSWA); a checkpoint whose window is already incomplete is useless.
+    struct Checkpoint { size_t n_tokens = 0; llama_pos pos_min = 0; llama_pos pos_max = 0; std::vector<uint8_t> data; };
     struct GgufFacts {  // read from the GGUF header only
         bool        ok = false;
         std::string arch;
@@ -190,6 +191,8 @@ private:
     std::string          mmproj_path_;
     llama_context *      ctx_   = nullptr;
     llama_sampler *      smpl_  = nullptr;
+    llama_sampler *      grmr_  = nullptr;    // grammar kept outside smpl_: only generated tokens may reach it
+    std::vector<llama_token_data> cur_;       // candidate buffer for the grammar sampling path
     llama_batch          batch_ = {};
     ggml_threadpool_t    tp_ = nullptr, tp_batch_ = nullptr;
     int                  tp_n_ = 0, tp_batch_n_ = 0;
