@@ -32,6 +32,7 @@ import to.eyed.inferno.BuildConfig
 import to.eyed.inferno.data.DevFlag
 import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.engine.EngineState
+import to.eyed.inferno.engine.loadedAny
 import to.eyed.inferno.engine.LoadedModel
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.CardDivider
@@ -127,10 +128,6 @@ private fun flagLabels(flag: DevFlag): Pair<String, String> = when (flag) {
     DevFlag.THERMAL_INFO -> S.devThermalInfo to S.devThermalInfoDesc
     DevFlag.TOKEN_COUNTER -> S.devTokenCounter to S.devTokenCounterDesc
 }
-
-/** Ready, Generating or Suspended: the facts of the resident weights (Suspended still knows its load and calibration). */
-private val EngineState.loadedAny: LoadedModel?
-    get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; is EngineState.Suspended -> loaded; else -> null }
 
 /** Label -> value rows of the Engine card; model-bound rows show "—" while nothing is loaded. */
 private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedModel?, thermal: Int, sustained: Boolean, ctxLabel: String?, systemInfo: String?): List<Pair<String, String>> {

@@ -32,6 +32,7 @@ import to.eyed.inferno.data.Conversation
 import to.eyed.inferno.data.MessageStats
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.EngineState
+import to.eyed.inferno.engine.loadedAny
 import to.eyed.inferno.engine.FinishReason
 import to.eyed.inferno.engine.GenerationEvent
 import to.eyed.inferno.engine.GenerationParams
@@ -613,10 +614,6 @@ class ChatViewModel(private val c: AppContainer, private val handle: SavedStateH
         val per = ms / images.size
         c.prefs.setCalibration(modelId, cal.copy(imageEncode = cal.imageEncode + (detail.name to ImageEncodeSample(per, 0))))
     }
-
-    /** Ready, Generating or Suspended: the facts of the resident weights (loadedOrNull excludes Suspended). */
-    private val EngineState.loadedAny: LoadedModel?
-        get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; is EngineState.Suspended -> loaded; else -> null }
 
     private companion object {
         const val KEY_ACTIVE = "activeId"

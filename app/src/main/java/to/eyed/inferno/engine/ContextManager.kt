@@ -32,9 +32,14 @@ class ContextManager(private val engine: PlannerEngine) {
      */
     data class CompactPlan(val cut: Int, val request: List<PromptMessage>, val maxTokens: Int, val droppedMaterial: Int)
 
-    /** Choose the context configuration for a model given settings + free RAM. Runs estimateMemory on the engine thread. */
-    suspend fun plan(model: LocalModel, settings: SettingsState, cpu: CpuTopology): Plan {
-        val availRam = cpu.availRamBytes()
+    /**
+     * Choose the context configuration for a model given settings + free RAM. Runs estimateMemory on the engine thread.
+     * [reclaimableBytes] = what the engine frees before this plan is loaded (the model currently in memory): a
+     * re-plan for a new context size, or a switch to another model, must not be judged against the RAM the old one
+     * still holds, or every Apply on a loaded phone reads "needs 2.1 GB free, 1.9 GB available".
+     */
+    suspend fun plan(model: LocalModel, settings: SettingsState, cpu: CpuTopology, reclaimableBytes: Long = 0): Plan {
+        val availRam = cpu.availRamBytes() + reclaimableBytes
         val budget = budgetBytes(availRam)
         val gate = (BUDGET_GATE * budget).toLong()
         val catalog = model.catalog

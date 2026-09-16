@@ -150,6 +150,13 @@ sealed interface EngineState {
     data class Error(val message: String, val model: LocalModel?) : EngineState
 }
 val EngineState.loadedOrNull: LoadedModel? get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; else -> null }
+/** Whatever holds weights right now (Ready, Generating, Suspended): what an unload or a re-plan gives back. */
+val EngineState.loadedAny: LoadedModel? get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; is EngineState.Suspended -> loaded; else -> null }
+/**
+ * Anonymous RAM this loaded model holds by its own plan: repacked weights + KV + compute, plus the projector when
+ * resident. Mapped weights are page cache and already count as available.
+ */
+val LoadedModel.residentFootprintBytes: Long get() = estimate?.let { e -> e.modelResidentBytes + e.kvBytes + e.computeBytes + (if (visionResident) e.mmprojBytes else 0L) } ?: 0L
 /** Model selected and either usable now or resumable without user action (Ready, Generating, Suspended, Loading). */
 val EngineState.modelOrNull: LocalModel? get() = when (this) { is EngineState.Ready -> loaded.model; is EngineState.Generating -> loaded.model
     is EngineState.Suspended -> loaded.model; is EngineState.Loading -> model; else -> null }

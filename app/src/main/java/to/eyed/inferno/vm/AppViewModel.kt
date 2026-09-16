@@ -35,6 +35,8 @@ import to.eyed.inferno.engine.BudgetGateException
 import to.eyed.inferno.engine.EngineException
 import to.eyed.inferno.engine.EngineService
 import to.eyed.inferno.engine.EngineState
+import to.eyed.inferno.engine.loadedAny
+import to.eyed.inferno.engine.residentFootprintBytes
 import to.eyed.inferno.engine.GenerationParams
 import to.eyed.inferno.engine.KvCacheType
 import to.eyed.inferno.engine.MemoryEstimate
@@ -252,7 +254,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             // The image engine goes first so the plan's availMem reading (and the budget gate) see the real headroom;
             // InferenceEngine.beforeLoad repeats this, harmlessly, right before the weights load.
             c.imageGen.unload()
-            var plan = c.contextManager.plan(local, s, c.cpu)
+            var plan = c.contextManager.plan(local, s, c.cpu, reclaimableBytes())
             _loadPlan.value = plan
             if (plan.reason != null) throw EngineException(plan.reason)
             val loaded = try {
@@ -260,7 +262,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             } catch (e: BudgetGateException) {
                 // Free RAM moved between the plan and the load (typical right after a download): plan once more
                 // against the memory of now instead of failing the first start with a stale number.
-                plan = c.contextManager.plan(local, s, c.cpu)
+                plan = c.contextManager.plan(local, s, c.cpu, reclaimableBytes())
                 _loadPlan.value = plan
                 if (plan.reason != null) throw EngineException(plan.reason)
                 c.engine.load(local, plan.config, s.imageDetail, s.useMmap, plan.visionAllowed)
@@ -299,7 +301,9 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         val local = c.models.local(model.id) ?: return
         val s = settings.value
         try {
-            val plan = c.contextManager.plan(local, s, c.cpu)
+            // Same as loadNow: the image engine's weights go first so the plan sees the real headroom.
+            c.imageGen.unload()
+            val plan = c.contextManager.plan(local, s, c.cpu, reclaimableBytes())
             _loadPlan.value = plan
             if (plan.reason != null) throw EngineException(plan.reason)
             val current = c.engine.loaded?.context
@@ -333,7 +337,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         val local = c.models.local(modelId)
         val catalog = local?.catalog ?: ModelCatalog.byId(modelId)
         val perToken = catalog?.kvBytesPerTokenF16?.toLong() ?: (64L * 1024)
-        val budget = ContextManager.budgetBytes(c.cpu.availRamBytes())
+        val budget = budgetBytes()
         val kvType = ContextManager.kvTypeFor(kv, perToken * nCtx, budget)
         val perElement = when (kvType) { KvCacheType.F16 -> 1.0; KvCacheType.Q8_0 -> 34.0 / 64; KvCacheType.Q4_0 -> 18.0 / 64 }
         val last = _loadPlan.value?.estimate?.takeIf { _loadPlan.value?.config != null && (engine.value.modelOrNull?.id == modelId) }
@@ -355,8 +359,10 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     /** CPU topology and RAM facts ("4 big cores detected", the Compute info row, UnsupportedCpuScreen features). */
     val cpu: CpuTopology get() = c.cpu
-    /** The planner's memory budget right now (availMem minus the LMK margin); the context page bar is estimate / budget. */
-    fun budgetBytes(): Long = ContextManager.budgetBytes(c.cpu.availRamBytes())
+    /** The planner's memory budget right now (availMem plus what the loaded model would give back, minus the LMK margin); the context page bar is estimate / budget. */
+    fun budgetBytes(): Long = ContextManager.budgetBytes(c.cpu.availRamBytes() + reclaimableBytes())
+    /** RAM the resident LLM frees before any new plan is loaded (weights are unloaded ahead of every load / reconfigure). */
+    private fun reclaimableBytes(): Long = engine.value.loadedAny?.residentFootprintBytes ?: 0L
     /** Native ggml system-info line for Settings > Advanced > System info (binds the JNI lazily; supported CPUs only). */
     fun systemInfo(): String = runCatching { c.engine.systemInfo() }.getOrElse { it.message ?: S.systemInfoUnavailable }
     /** POST_NOTIFICATIONS granted and the app not muted: drives the "Enable notifications" notice in the model manager. */

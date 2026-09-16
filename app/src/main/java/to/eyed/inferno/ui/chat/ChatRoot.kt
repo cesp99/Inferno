@@ -73,6 +73,7 @@ import to.eyed.inferno.data.devThermalInfo
 import to.eyed.inferno.data.devTokenCounter
 import to.eyed.inferno.data.devTurnDetails
 import to.eyed.inferno.engine.EngineState
+import to.eyed.inferno.engine.loadedAny
 import to.eyed.inferno.engine.LoadedModel
 import to.eyed.inferno.ui.S
 import to.eyed.inferno.ui.components.ErrorNotice
@@ -92,10 +93,6 @@ import to.eyed.inferno.vm.ChatViewModel
 import to.eyed.inferno.vm.GenState
 import to.eyed.inferno.vm.Screen
 import to.eyed.inferno.vm.isBusy
-
-/** Ready, Generating or Suspended: the facts of the resident weights. */
-private val EngineState.loadedAny: LoadedModel?
-    get() = when (this) { is EngineState.Ready -> loaded; is EngineState.Generating -> loaded; is EngineState.Suspended -> loaded; else -> null }
 
 /**
  * Chat shell (spec 5.6 ChatRoot): permanent 300 dp pane from the expanded width class, a modal drawer
