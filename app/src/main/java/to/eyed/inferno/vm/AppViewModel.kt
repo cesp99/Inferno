@@ -113,6 +113,11 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun onChatDisplayed() { chatShown.value = true }
 
     private var loadJob: Job? = null
+    // Declared before init: firstRunAutoLoad() runs synchronously on Main.immediate when prefs and the disk scan have
+    // already landed (Application created the container long before this ViewModel), and its selectAndLoad() writes here.
+    private val _loadInProgress = MutableStateFlow(false)
+    /** True from selectAndLoad() until its plan/load/calibration finished or failed (the engine is still Idle while planning). */
+    val loadInProgress: StateFlow<Boolean> = _loadInProgress.asStateFlow()
     /** Set after a successful load until ChatViewModel starts the first turn (crash-loop guard, 5.5). */
     @Volatile private var firstTurnPending = false
     private var deferredThreads = false
@@ -238,9 +243,6 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         }
     }
 
-    private val _loadInProgress = MutableStateFlow(false)
-    /** True from selectAndLoad() until its plan/load/calibration finished or failed (the engine is still Idle while planning). */
-    val loadInProgress: StateFlow<Boolean> = _loadInProgress.asStateFlow()
 
     fun unload() {
         loadJob?.cancel()

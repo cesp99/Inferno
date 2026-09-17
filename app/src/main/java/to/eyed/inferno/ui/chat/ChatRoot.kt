@@ -136,14 +136,18 @@ fun ChatRoot(appVm: AppViewModel, chatVm: ChatViewModel, onBeforeSend: () -> Uni
     var dismissedError by remember { mutableStateOf<GenState.Error?>(null) }
 
     val loaded = engine.loadedAny
+    // Idle with a selected, downloaded model is still sendable: the VM reloads and queues the turn (attachments included),
+    // so the attach button follows that model rather than reporting "no vision" while nothing is resident (e.g. after an
+    // image run released the weights).
+    val idleModel = if (engine is EngineState.Idle) settings.selectedModelId?.let { id -> models.firstOrNull { it.id == id }?.local } else null
+    val idleLoadable = idleModel != null
     val canAttachImages = when (val e = engine) {
         is EngineState.Loading -> e.model.hasVision
+        is EngineState.Idle -> idleModel?.hasVision == true
         else -> loaded?.let { it.hasVision && it.visionAllowed } ?: false
     }
     val noVisionReason = if (loaded != null && loaded.hasVision && !loaded.visionAllowed) S.noMemoryForVision else S.noVision
     val thinkingAvailable = loaded?.model?.catalog?.thinking?.hasTags == true
-    // Idle with a selected, downloaded model is still sendable: the VM reloads and queues the turn.
-    val idleLoadable = settings.selectedModelId?.let { id -> models.any { it.id == id && it.isDownloaded } } == true
     val disabledReason = when {
         engine is EngineState.Idle && !idleLoadable -> S.chooseModelToStart
         engine is EngineState.Error -> S.composerLoadModelToStart

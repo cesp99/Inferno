@@ -1,8 +1,10 @@
 package to.eyed.inferno
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -35,7 +37,9 @@ class MainActivity : ComponentActivity() {
         val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         splash.setKeepOnScreenCondition { !container.prefsLoaded }
-        enableEdgeToEdge()
+        // Both bars transparent with light icons regardless of the system theme: the UI is always black, and the default
+        // SystemBarStyle.auto would draw dark, invisible status icons whenever the phone is in light mode.
+        enableEdgeToEdge(SystemBarStyle.dark(Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT))
         chatVm.bind(appVm)
         // Only a fresh launch carries a new share: after a process death the system re-delivers the original
         // ACTION_SEND intent with the restored task, which must not re-import the image into a new chat.
