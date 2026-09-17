@@ -2,5 +2,11 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/llama.cpp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/stable-diffusion.cpp" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/stable-diffusion.cpp/examples/server/frontend" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/stable-diffusion.cpp/ggml" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/stable-diffusion.cpp/thirdparty/libwebm" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/third_party/stable-diffusion.cpp/thirdparty/libwebp" vcs="Git" />
   </component>
 </project>
