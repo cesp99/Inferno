@@ -5,6 +5,7 @@
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -36,25 +37,32 @@ CpuTopology cpu_topology() {
     if (n > 32) n = 32;                    // big_mask is 32 bits; phones have <= 12 cores
     t.n_cores = (int) n;
 
-    // Prefer the scheduler's normalised capacity (Seeker: cpu4-7 = 1024), fall back to max freq.
-    std::vector<long> cap((size_t) n, -1);
-    long max = -1;
-    bool any = false;
-    for (int i = 0; i < n; i++) {
-        const std::string base = "/sys/devices/system/cpu/cpu" + std::to_string(i);
-        long v = read_long(base + "/cpu_capacity");
-        if (v <= 0) {
-            v = read_long(base + "/cpufreq/cpuinfo_max_freq");
+    // Prefer the scheduler's normalised capacity (Seeker: cpu4-7 = 1024), fall back to max freq. Same rule as
+    // CpuTopology.bigMask on the Kotlin side: a core is big at >= 60 % of the largest capacity (85 % of the highest
+    // frequency), which keeps a second performance tier (Snapdragon 8 Elite: 2x1024 + 6x741) in and only the
+    // efficiency cluster (0.2-0.45) out. Cores "at the maximum" would leave the 4 default threads to one or two
+    // prime cores, and an oversubscribed spin-barrier pool takes tens of minutes for one calibration.
+    auto read_all = [n](const char * leaf, std::vector<long> & out) {
+        out.assign((size_t) n, -1);
+        for (int i = 0; i < n; i++) {
+            out[(size_t) i] = read_long("/sys/devices/system/cpu/cpu" + std::to_string(i) + leaf);
+            if (out[(size_t) i] <= 0) return false;     // one unreadable core: the whole source is unusable
         }
-        cap[(size_t) i] = v;
-        if (v > 0) {
-            any = true;
-            if (v > max) max = v;
-        }
+        return true;
+    };
+    std::vector<long> v;
+    double fraction = 0.6;
+    bool any = read_all("/cpu_capacity", v);
+    if (!any) {
+        any = read_all("/cpufreq/cpuinfo_max_freq", v);
+        fraction = 0.85;
     }
     if (any) {
+        long max = -1;
+        for (long x : v) max = std::max(max, x);
+        const double floor = (double) max * fraction;
         for (int i = 0; i < n; i++) {
-            if (cap[(size_t) i] == max) {
+            if ((double) v[(size_t) i] >= floor) {
                 t.big_mask |= (1u << i);
                 t.n_big++;
             }

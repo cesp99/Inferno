@@ -38,7 +38,7 @@ internal class FakeNative : NativeApi {
 
     private var next = 0
 
-    override fun backendInit(minLogPriority: Int, bigMask: Int) { calls += "backendInit($bigMask)" }
+    override fun backendInit(minLogPriority: Int, bigMask: Int, gpuPolicy: Int, cacheDir: String) { calls += "backendInit($bigMask)" }
     override fun systemInfo(): String = "fake"
     override fun modelLoad(path: String, mmprojPath: String?, useMmap: Boolean, nThreadsMmproj: Int, imageMinTokens: Int, imageMaxTokens: Int, progress: ProgressCallback?): Long {
         calls += "modelLoad($path,mmap=$useMmap,maxTok=$imageMaxTokens)"

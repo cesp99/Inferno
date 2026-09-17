@@ -36,6 +36,7 @@ import com.composables.icons.lucide.ArrowLeft
 import com.composables.icons.lucide.Lucide
 import com.composables.icons.lucide.X
 import to.eyed.inferno.data.ExperienceLevel
+import to.eyed.inferno.data.GpuPref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
 import to.eyed.inferno.data.devGenerationStats
@@ -144,6 +145,11 @@ private fun SettingsBody(appVm: AppViewModel, chatVm: ChatViewModel, onOpenBench
             }
             CardDivider()
             Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) { Text(S.presetDescription, style = Typography.bodySmall, color = Ink.I500) }
+            CardDivider()
+            val gpu = appVm.gpuInfo()
+            ControlRow(S.gpu, description = if (gpu == null) S.gpuNotProbed else S.gpuDesc(gpu.name.takeIf { gpu.available }, gpu.adreno, gpu.usable)) {
+                ConnectedGroup(listOf("Auto", "On", "Off"), s.gpu.ordinal, { appVm.setGpu(GpuPref.entries[it]) })
+            }
             if (s.devThermalInfo) {
                 CardDivider()
                 val cpu = appVm.cpu

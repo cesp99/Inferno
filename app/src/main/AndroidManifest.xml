@@ -40,6 +40,9 @@
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Inferno.Starting"
         tools:ignore="MissingClass">
+        <!-- Since API 31 an app only sees the vendor public libraries it declares: this is what lets
+             inferno_opencl.cpp dlopen the phone's OpenCL driver (Adreno GPU path). Optional: CPU-only elsewhere. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
 
         <activity
             android:name=".MainActivity"

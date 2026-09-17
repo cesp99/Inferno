@@ -55,7 +55,7 @@ enum class Finish { running = 0, eos = 1, length = 2, context_full = 3, cancelle
 using Progress = bool (*)(int done, int total, int phase, void * ud);
 
 struct ModelInfo {                 // MInfo.* / MInfoS.*
-    int64_t     nums[10] = {};
+    int64_t     nums[11] = {};
     std::string strs[4];
 };
 struct MemEstimate { int64_t v[8] = {}; };   // MemEst.*
@@ -66,8 +66,18 @@ public:
     static Engine & get();
 
     // lifecycle ----------------------------------------------------------------
-    void backend_init(int min_log_prio, uint32_t big_mask);
+    // gpu_policy: inferno_opencl.h GpuPolicy; cache_dir: writable dir for compiled OpenCL programs.
+    void backend_init(int min_log_prio, uint32_t big_mask, int gpu_policy, const std::string & cache_dir);
     void backend_free();
+    // Live policy change (AUTO/ON/OFF). The cached no_alloc estimates were built for the previous device set.
+    void set_gpu_policy(int gpu_policy);
+    // True when a model with [cpu_pinned] tensors would be offloaded to the OpenCL device (policy x probe).
+    // AUTO declines models that keep tensors on the CPU (Gemma 4 per-layer embeddings): the CPU<->GPU split on
+    // every layer made decode slower than the CPU path (12.8 vs 20.1 t/s on Adreno 840); ON takes them anyway.
+    bool gpu_active(bool cpu_pinned) const;
+    bool gpu_loaded() const { return model_ && model_on_gpu_; }
+    // The OpenCL device as ggml registered it (nullptr when the backend dropped it: Mali, old Adreno drivers).
+    ggml_backend_dev_t gpu_device() const { return gpu_dev_; }
 
     // model --------------------------------------------------------------------
     llama_model * model_load(const std::string & path, const std::string & mmproj, bool use_mmap,
@@ -159,6 +169,8 @@ private:
     // engine-side helpers (inferno_engine.cpp / inferno_estimate.cpp)
     static GgufFacts inspect_gguf(const std::string & path);
     llama_context_params context_params(const ContextParams & p) const;
+    // n_gpu_layers / devices for the policy of the moment; shared by the real load and the no_alloc twin.
+    void apply_gpu_params(llama_model_params & mp, bool cpu_pinned) const;
     bool build_threadpools(int n_gen, int n_batch, bool big_cores_only, uint32_t poll);
     void free_threadpools();
     void detect_template();
@@ -201,6 +213,8 @@ private:
     std::vector<int>     worker_tids_;
     ContextParams        cparams_;
     uint32_t             big_mask_ = 0;       // from backend_init (0 => detect)
+    bool                 model_on_gpu_ = false; // model_ was loaded with every layer offloaded
+    ggml_backend_dev_t   gpu_dev_ = nullptr;    // backend_init: ggml's view of the OpenCL device
     bool                 needs_checkpoints_ = false;
 
     std::string          tmpl_;               // chat template source from GGUF (may be empty)

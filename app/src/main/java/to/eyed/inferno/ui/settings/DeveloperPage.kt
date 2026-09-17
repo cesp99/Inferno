@@ -131,6 +131,7 @@ private fun engineRows(appVm: AppViewModel, s: SettingsState, loaded: LoadedMode
     out += S.llamaCppRow to "${BuildConfig.LLAMA_TAG} · ${BuildConfig.LLAMA_COMMIT.take(7)}"
     out += S.sdCppRow to BuildConfig.SD_COMMIT.take(7)
     out += S.cpuRow to "${cpu.socName.ifBlank { "CPU" }} · ${cpu.nBig} big of ${cpu.nCores}"
+    out += S.gpuRow to (appVm.gpuInfo()?.takeIf { it.available }?.let { "${it.name} · ${it.version} · ${if (loaded?.gpu != null) "offloaded" else if (it.active) "next load" else if (it.usable) "cpu" else "unsupported"}" } ?: S.notAvailable)
     out += S.cpuFeaturesRow to (systemInfo?.let(::cpuFeatures) ?: S.loading)
     val live = liveThreads
     out += S.threadsRow to if (live > 0) "$live · ${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}" else "${s.threads} ${S.requested} · ${if (s.pinBigCores) "pinned" else "free"}"

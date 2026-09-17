@@ -52,10 +52,11 @@ class ContextManager(private val engine: PlannerEngine) {
         val nBatch = batchFor(model, settings.imageDetail)
         val swaFull = catalog?.family !in setOf(ModelFamily.GEMMA3, ModelFamily.GEMMA4)
         val kvPerTokenF16 = catalog?.kvBytesPerTokenF16?.toLong() ?: facts?.kvBytesPerTokenF16 ?: DEFAULT_KV_BYTES_PER_TOKEN
+        val nThreads = cpu.threadsFor(settings.threads, settings.pinBigCores)
         fun config(nCtx: Int): ContextConfig {
             val kvType = kvTypeFor(settings.kvCache, kvPerTokenF16 * nCtx, budget)
             return ContextConfig(
-                nCtx = nCtx, nBatch = nBatch, nUbatch = nBatch, nThreads = settings.threads, nThreadsBatch = settings.threads,
+                nCtx = nCtx, nBatch = nBatch, nUbatch = nBatch, nThreads = nThreads, nThreadsBatch = nThreads,
                 bigCoresOnly = settings.pinBigCores, flashAttention = settings.flashAttention || kvType != KvCacheType.F16,
                 kvType = kvType, swaFull = swaFull, poll = settings.poll,
             )

@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import to.eyed.inferno.AppContainer
 import to.eyed.inferno.data.DevFlag
 import to.eyed.inferno.data.ContextPolicy
+import to.eyed.inferno.data.GpuPref
 import to.eyed.inferno.data.KvCachePref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.data.SettingsState
@@ -32,6 +33,7 @@ import to.eyed.inferno.data.ExperienceLevel
 import to.eyed.inferno.data.devBenchmark
 import to.eyed.inferno.data.powerUser
 import to.eyed.inferno.engine.Calibration
+import to.eyed.inferno.engine.InferenceEngine
 import to.eyed.inferno.engine.ContextManager
 import to.eyed.inferno.engine.CpuTopology
 import to.eyed.inferno.engine.BudgetGateException
@@ -115,14 +117,15 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     @Volatile private var firstTurnPending = false
     private var deferredThreads = false
     private var deferredReload = false
-    /** useMmap the resident weights were loaded with: a change needs a full reload, not a reconfigure. */
+    /** useMmap / GPU policy the resident weights were loaded with: a change needs a full reload, not a reconfigure. */
     private var loadedUseMmap = true
+    private var loadedGpuPref = GpuPref.AUTO
 
     init {
         viewModelScope.launch { c.models.notice.collect { notice(it) } }
         viewModelScope.launch {
-            settings.map { it.perfPreset to it.minLogPriority }.distinctUntilChanged().collect { (p, log) ->
-                c.engine.perfPreset = p; c.engine.minLogPriority = log
+            settings.map { Triple(it.perfPreset, it.minLogPriority, it.gpu) }.distinctUntilChanged().collect { (p, log, gpu) ->
+                c.engine.perfPreset = p; c.engine.minLogPriority = log; c.engine.gpuPref = gpu
             }
         }
         // Settings that needed a reload while a turn was running are applied at the next Ready.
@@ -256,6 +259,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
 
     private suspend fun loadNow(local: LocalModel) {
         val s = settings.value
+        c.engine.gpuPref = s.gpu      // the collector above may not have run yet on a cold start
         firstTurnPending = false
         c.prefs.setSelectedModel(local.id)
         if (!s.onboardingDone) c.prefs.setOnboardingDone(true)
@@ -279,6 +283,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
                 c.engine.load(local, plan.config, s.imageDetail, s.useMmap, plan.visionAllowed)
             }
             loadedUseMmap = s.useMmap
+            loadedGpuPref = s.gpu
             c.engine.setSampling(effectiveParams())
             val cal = s.calibration[local.id]
             if (cal == null) calibrate(local.id, loaded.loadMs) else c.engine.setCalibration(cal.copy(loadMs = loaded.loadMs))
@@ -318,8 +323,8 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
             _loadPlan.value = plan
             if (plan.reason != null) throw EngineException(plan.reason)
             val current = c.engine.loaded?.context
-            // mmap / DIRECT_IO is a load-time choice; everything else only needs a new context.
-            if (current != null && s.useMmap == loadedUseMmap) c.engine.reconfigure(plan.config) else loadNow(local)
+            // mmap / DIRECT_IO and the GPU policy are load-time choices; everything else only needs a new context.
+            if (current != null && s.useMmap == loadedUseMmap && s.gpu == loadedGpuPref) c.engine.reconfigure(plan.config) else loadNow(local)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -339,7 +344,7 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         when (engine.value) {
             is EngineState.Generating, is EngineState.Loading -> deferredThreads = true
             is EngineState.Idle, is EngineState.Error -> Unit
-            else -> runCatching { c.engine.setThreads(s.threads, s.pinBigCores, s.poll) }.onFailure { notice(it.message ?: S.couldNotChangeThreads) }
+            else -> runCatching { c.engine.setThreads(c.cpu.threadsFor(s.threads, s.pinBigCores), s.pinBigCores, s.poll) }.onFailure { notice(it.message ?: S.couldNotChangeThreads) }
         }
     }
 
@@ -412,7 +417,10 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
     fun setPoll(v: Int) = viewModelScope.launch { c.prefs.setPoll(v); applyThreads() }
     fun setKvCache(k: KvCachePref) = viewModelScope.launch { c.prefs.setKvCache(k); reloadOrDefer() }
     fun setFlashAttention(v: Boolean) = viewModelScope.launch { c.prefs.setFlashAttention(v); reloadOrDefer() }
-    fun setUseMmap(v: Boolean) = viewModelScope.launch { c.prefs.setUseMmap(v); reloadOrDefer() }
+    // Load-time choices: the DataStore write returns before the settings StateFlow re-emits, and reloadCurrent()
+    // reads settings.value, so wait for the new value to land or it compares against the old one.
+    fun setUseMmap(v: Boolean) = viewModelScope.launch { c.prefs.setUseMmap(v); settings.first { it.useMmap == v }; reloadOrDefer() }
+    fun setGpu(g: GpuPref) = viewModelScope.launch { c.prefs.setGpu(g); settings.first { it.gpu == g }; reloadOrDefer() }
     fun setKeepModelLoaded(v: Boolean) = viewModelScope.launch { c.prefs.setKeepModelLoaded(v) }
     fun setParams(p: GenerationParams) = viewModelScope.launch { c.prefs.setParams(p); applySampling() }
     fun setUseModelDefaults(v: Boolean) = viewModelScope.launch { c.prefs.setUseModelDefaults(v); applySampling() }
@@ -445,8 +453,12 @@ class AppViewModel(private val c: AppContainer, private val handle: SavedStateHa
         val live = live.takeIf { it > 0 }
         val threads = if (live != null && live != s.threads) "$live of ${s.threads} threads" else "${s.threads} threads"
         val thermal = thermalName(thermalStatus.value)
-        return "$threads · ${if (s.pinBigCores) "pinned" else "free"} · thermal $thermal · sustained ${if (sustainedMode.value) "on" else "off"}"
+        val gpu = c.engine.loaded?.gpu?.let { "GPU · " } ?: ""
+        return "$gpu$threads · ${if (s.pinBigCores) "pinned" else "free"} · thermal $thermal · sustained ${if (sustainedMode.value) "on" else "off"}"
     }
+
+    /** The OpenCL GPU as the engine probed it (null before the backend is up or without a driver). */
+    fun gpuInfo(): InferenceEngine.GpuInfo? = c.engine.gpuInfo()
 
     private suspend fun applySampling() {
         if (engine.value !is EngineState.Idle && engine.value !is EngineState.Generating) runCatching { c.engine.setSampling(effectiveParams()) }

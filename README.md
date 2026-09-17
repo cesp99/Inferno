@@ -42,10 +42,13 @@ Two native engines, compiled from pinned git submodules and statically linked in
 * [llama.cpp](https://github.com/ggml-org/llama.cpp) for language and vision models.
 * [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) for image generation.
 
-Both run CPU-only with Arm KleidiAI kernels, four threads pinned to the big cores, and flash attention. The GPU
-path was measured and turned out many times slower on mobile Mali GPUs; the numbers are in
-[docs/performance.md](docs/performance.md). The app itself is Kotlin and Jetpack Compose with a Material 3
-Expressive, monochrome design. See [docs/architecture.md](docs/architecture.md).
+On Qualcomm phones the language model runs on the Adreno GPU through ggml's OpenCL backend; everywhere else it
+runs on the CPU with Arm KleidiAI kernels, four threads pinned to the big cores, and flash attention (the GPU
+path was measured many times slower on Mali GPUs; numbers in [docs/performance.md](docs/performance.md)). The
+choice is automatic and can be overridden in Settings > Performance > GPU. Vision encoding and image generation
+are CPU-only. The app
+itself is Kotlin and Jetpack Compose with a Material 3 Expressive, monochrome design. See
+[docs/architecture.md](docs/architecture.md).
 
 ## Building
 

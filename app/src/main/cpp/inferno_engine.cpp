@@ -13,6 +13,7 @@
 
 #include "inferno_cpu.h"
 #include "inferno_log.h"
+#include "inferno_opencl.h"
 
 namespace inferno {
 
@@ -105,8 +106,10 @@ void Engine::set_error(const std::string & msg) {
 
 // ----------------------------------------------------------------------------------------------- lifecycle
 
-void Engine::backend_init(int min_log_prio, uint32_t big_mask) {
+void Engine::backend_init(int min_log_prio, uint32_t big_mask, int gpu_policy, const std::string & cache_dir) {
     log_install(min_log_prio);
+    // Before llama_backend_init: the ggml registry probes OpenCL on first use and reads the cache dir then.
+    opencl_configure((GpuPolicy) gpu_policy, cache_dir);
     big_mask_ = big_mask;
     if (big_mask_ != 0) {
         // Every thread ggml/clip spawns from the engine thread inherits this mask.
@@ -116,6 +119,37 @@ void Engine::backend_init(int min_log_prio, uint32_t big_mask) {
     }
     llama_backend_init();
     LOGI("%s", llama_print_system_info());
+    const GpuProbe & gpu = opencl_probe();
+    // ggml-opencl probes on first registry use and drops GPUs it has no kernels for (Mali, A6x): the policy can
+    // only pick a device that survived that, whatever the driver enumerates.
+    gpu_dev_ = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_GPU);
+    LOGI("gpu: %s (%s, policy %d -> %s)", gpu.available ? gpu.name.c_str() : "none",
+         gpu_dev_ ? "usable" : "not usable by ggml-opencl", gpu_policy, gpu_active(false) ? "offload" : "cpu");
+}
+
+void Engine::set_gpu_policy(int gpu_policy) {
+    opencl_configure((GpuPolicy) gpu_policy, "");
+    estimate_cache_clear();
+}
+
+bool Engine::gpu_active(bool cpu_pinned) const {
+    if (!gpu_dev_ || !opencl_use_gpu()) {
+        return false;
+    }
+    return !cpu_pinned || opencl_policy() == GpuPolicy::ON;
+}
+
+void Engine::apply_gpu_params(llama_model_params & mp, bool cpu_pinned) const {
+    // An explicit empty device list keeps llama from creating an OpenCL backend (kernel build, a context) for
+    // a model that offloads nothing; with offload every layer goes to the GPU, the buft overrides still pin
+    // the per-layer embeddings to the CPU.
+    static ggml_backend_dev_t no_devices[] = { nullptr };
+    if (gpu_active(cpu_pinned)) {
+        mp.n_gpu_layers = INT32_MAX;
+    } else {
+        mp.n_gpu_layers = 0;
+        mp.devices      = no_devices;
+    }
 }
 
 void Engine::backend_free() {
@@ -143,7 +177,8 @@ llama_model * Engine::model_load(const std::string & path, const std::string & m
     overrides.push_back({ nullptr, nullptr });
 
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers          = 0;
+    apply_gpu_params(mp, !facts_.override_patterns.empty());
+    model_on_gpu_ = mp.n_gpu_layers > 0;
     mp.use_extra_bufts       = true;                  // KleidiAI / CPU_REPACK buffer types
     mp.tensor_buft_overrides = overrides.data();
     // Repacked tensors are copied out of the mapping and never read again: DIRECT_IO keeps them out of the
@@ -172,9 +207,10 @@ llama_model * Engine::model_load(const std::string & path, const std::string & m
     }
     tmpl_override_.clear();
     detect_template();
-    LOGI("model loaded in %lld ms (load_mode=%s, mapped=%lld MB, template=%s%s)",
+    LOGI("model loaded in %lld ms (load_mode=%s, mapped=%lld MB, template=%s%s, %s)",
          (long long) (ggml_time_ms() - t0), llama_load_mode_name(mp.load_mode),
-         (long long) (facts_.mapped_bytes >> 20), tmpl_name_.c_str(), tmpl_supported_ ? "" : " [fallback]");
+         (long long) (facts_.mapped_bytes >> 20), tmpl_name_.c_str(), tmpl_supported_ ? "" : " [fallback]",
+         mp.n_gpu_layers > 0 ? "gpu" : "cpu");
 
     // The estimate cache holds a no_alloc twin of this file; the real model supersedes it.
     for (auto it = estimates_.begin(); it != estimates_.end(); ++it) {
@@ -279,6 +315,7 @@ bool Engine::model_info(ModelInfo & out) {
     out.nums[7] = (mctx_ && mtmd_support_vision(mctx_)) ? 1 : 0;   // only known once the projector is resident
     out.nums[8] = tmpl_supported_ ? 1 : 0;
     out.nums[9] = llama_vocab_n_tokens(vocab_);
+    out.nums[10] = model_on_gpu_ ? 1 : 0;
     char buf[1024];
     out.strs[0] = arch_;
     if (llama_model_desc(model_, buf, sizeof(buf)) > 0) out.strs[1] = buf;
@@ -326,6 +363,8 @@ bool Engine::mmproj_load(const std::string & path, int n_threads, int image_min_
     }
     mmproj_free();
     mtmd_context_params mp = mtmd_context_params_default();
+    // The vision encoder stays on the CPU even when the text model is offloaded: its ops on ggml-opencl are
+    // unverified on Adreno (v0.1), and the CPU encode is the measured path (docs/performance.md, Vision).
     mp.use_gpu           = false;
     mp.print_timings     = false;
     mp.n_threads         = std::max(n_threads, 1);
@@ -452,6 +491,14 @@ bool Engine::build_threadpools(int n_gen, int n_batch, bool big_cores_only, uint
     uint32_t mask = 0;
     if (big_cores_only) {
         mask = big_mask_ != 0 ? big_mask_ : cpu_topology().big_mask;
+        // Never more threads than pinned cores: ggml barriers spin, and two workers sharing a core wait on the
+        // scheduler at every graph node (a 4-on-2 pool ran one calibration for tens of minutes). Kotlin clamps the
+        // same way (CpuTopology.threadsFor); this is the last line of defence for any caller of set_threads.
+        const int n_pinned = __builtin_popcount(mask);
+        if (n_pinned > 0) {
+            if (n_gen > n_pinned)   { LOGW("threads %d -> %d: only %d pinned cores", n_gen, n_pinned, n_pinned); n_gen = n_pinned; }
+            if (n_batch > n_pinned) { n_batch = n_pinned; }
+        }
     }
     if (!cpu_set_affinity(mask)) {     // engine thread: pinned or unpinned together with the pools
         LOGW("sched_setaffinity(0x%x) failed", mask);

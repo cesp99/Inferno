@@ -25,7 +25,27 @@ set(GGML_OPENMP            OFF CACHE BOOL "" FORCE)   # persistent ggml threadpo
 set(GGML_LLAMAFILE         OFF CACHE BOOL "" FORCE)
 set(GGML_CCACHE            OFF CACHE BOOL "" FORCE)
 set(GGML_VULKAN            OFF CACHE BOOL "" FORCE)
-set(GGML_OPENCL            OFF CACHE BOOL "" FORCE)
+
+# Adreno GPU path: ggml-opencl (Qualcomm-tuned kernels, embedded as strings at build time -> Python3 needed).
+# The backend is linked against inferno_opencl instead of a libOpenCL.so: that target defines every cl*
+# entry point as a forwarder into the vendor driver dlopen'ed at runtime, so the same libinferno.so runs on
+# phones without OpenCL (the registry then simply lists no GPU device). FindOpenCL accepts a target name
+# for OpenCL_LIBRARY; the header-only Khronos package is a submodule.
+set(OPENCL_HEADERS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/OpenCL-Headers)
+if(NOT EXISTS ${OPENCL_HEADERS_DIR}/CL/cl.h)
+    message(FATAL_ERROR "OpenCL-Headers submodule missing: git submodule update --init --recursive")
+endif()
+add_library(inferno_opencl STATIC inferno_opencl.cpp)
+target_include_directories(inferno_opencl PUBLIC ${OPENCL_HEADERS_DIR})
+target_compile_definitions(inferno_opencl PRIVATE CL_TARGET_OPENCL_VERSION=300)
+target_compile_options(inferno_opencl PRIVATE -fvisibility=hidden -Wall -Wextra -Werror)
+target_link_libraries(inferno_opencl PRIVATE log)
+set(OpenCL_INCLUDE_DIR ${OPENCL_HEADERS_DIR} CACHE PATH "" FORCE)
+set(OpenCL_LIBRARY     inferno_opencl      CACHE STRING "" FORCE)
+set(GGML_OPENCL                     ON  CACHE BOOL "" FORCE)
+set(GGML_OPENCL_EMBED_KERNELS       ON  CACHE BOOL "" FORCE)
+set(GGML_OPENCL_USE_ADRENO_KERNELS  ON  CACHE BOOL "" FORCE)
+set(GGML_OPENCL_TARGET_VERSION      "300" CACHE STRING "" FORCE)
 set(GGML_ALL_WARNINGS      OFF CACHE BOOL "" FORCE)
 set(LLAMA_ALL_WARNINGS     OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL          OFF CACHE BOOL "" FORCE)
@@ -53,12 +73,13 @@ add_library(inferno SHARED
     inferno_bench.cpp        # Engine: benchmark
     inferno_cpu.cpp          # core topology + feature detection (no ggml)
     inferno_log.cpp)         # logcat sink for ggml/llama/mtmd
+                             # inferno_opencl.cpp: OpenCL loader + policy, its own target above
 target_include_directories(inferno PRIVATE
     ${LLAMA_DIR}/include ${LLAMA_DIR}/ggml/include ${LLAMA_DIR}/tools/mtmd
     ${LLAMA_DIR}/src)        # src: llama-ext.h only (llama_get_memory_breakdown)
 target_compile_options(inferno PRIVATE
     -fvisibility=hidden -fvisibility-inlines-hidden -fexceptions -frtti
     -Wall -Wextra -Werror -Wno-unused-parameter)
-target_link_libraries(inferno PRIVATE mtmd llama ggml log android)
+target_link_libraries(inferno PRIVATE mtmd llama ggml inferno_opencl log android)
 target_link_options(inferno PRIVATE
     -Wl,-z,max-page-size=16384 -Wl,--gc-sections -Wl,--exclude-libs,ALL -Wl,--build-id=sha1)

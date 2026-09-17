@@ -10,6 +10,7 @@
 #include "inferno_cpu.h"
 #include "inferno_engine.h"
 #include "inferno_log.h"
+#include "inferno_opencl.h"
 
 using inferno::Engine;
 
@@ -205,8 +206,23 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM * vm, void *) {
 
 // ----------------------------------------------------------------------------------------------- lifecycle
 
-JNI_FN(void, backendInit)(JNIEnv *, jclass, jint min_log_prio, jint big_mask) {
-    Engine::get().backend_init((int) min_log_prio, (uint32_t) big_mask);
+JNI_FN(void, backendInit)(JNIEnv * env, jclass, jint min_log_prio, jint big_mask, jint gpu_policy, jstring cache_dir) {
+    Engine::get().backend_init((int) min_log_prio, (uint32_t) big_mask, (int) gpu_policy, jstr(env, cache_dir));
+}
+
+JNI_FN(void, setGpuPolicy)(JNIEnv *, jclass, jint gpu_policy) {
+    Engine::get().set_gpu_policy((int) gpu_policy);
+}
+
+// "name\tversion\tdriver\tadreno(0/1)\tusable(0/1)\tactive(0/1)", empty when no OpenCL GPU answered. ASCII from the driver.
+JNI_FN(jstring, gpuInfo)(JNIEnv * env, jclass) {
+    const inferno::GpuProbe & g = inferno::opencl_probe();
+    std::string out;
+    if (g.available) {
+        out = g.name + "\t" + g.version + "\t" + g.driver + (g.adreno ? "\t1" : "\t0")
+            + (Engine::get().gpu_device() ? "\t1" : "\t0") + (Engine::get().gpu_active(false) ? "\t1" : "\t0");
+    }
+    return env->NewStringUTF(out.c_str());
 }
 
 JNI_FN(void, backendFree)(JNIEnv *, jclass) {
@@ -255,8 +271,8 @@ JNI_FN(jlongArray, modelInfoNumbers)(JNIEnv * env, jclass, jlong model) {
     if (!check_model(model) || !Engine::get().model_info(info)) {
         return nullptr;
     }
-    jlongArray out = env->NewLongArray(10);
-    if (out) env->SetLongArrayRegion(out, 0, 10, reinterpret_cast<const jlong *>(info.nums));
+    jlongArray out = env->NewLongArray(11);
+    if (out) env->SetLongArrayRegion(out, 0, 11, reinterpret_cast<const jlong *>(info.nums));
     return out;
 }
 

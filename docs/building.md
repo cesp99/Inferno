@@ -12,12 +12,13 @@
   ```
 
   `platforms;android-37.1` is needed by the alpha Compose BOM used by `:app`.
-* Git with submodules. ImageMagick 7 only if you regenerate the launcher icons.
+* Git with submodules. Python 3 on the PATH (ggml embeds its OpenCL kernels as strings at configure time).
+  ImageMagick 7 only if you regenerate the launcher icons.
 
 ## Commands
 
 ```bash
-git submodule update --init --recursive   # llama.cpp (~1.2 GB) and stable-diffusion.cpp
+git submodule update --init --recursive   # llama.cpp (~1.2 GB), stable-diffusion.cpp, OpenCL-Headers
 ./gradlew :app:assembleDebug              # first native configure takes 3-4 minutes
 ./gradlew :app:assembleRelease            # R8, resource shrinking, thin LTO on the native code
 ./gradlew :app:testDebugUnitTest          # JVM unit tests
@@ -28,6 +29,11 @@ own copy of ggml) and 5 MB the language-model library.
 
 ## Notes
 
+* **OpenCL without a link dependency.** `libinferno.so` is not linked against any `libOpenCL.so`: ggml's OpenCL
+  backend resolves its entry points through `app/src/main/cpp/inferno_opencl.cpp`, which `dlopen`s the vendor
+  driver at run time. The same APK therefore runs on phones without OpenCL (CPU path) and on Adreno phones
+  (GPU path); see [performance.md](performance.md). When llama.cpp is updated, any new `cl*` call in
+  `ggml-opencl` shows up as an unresolved symbol at link time and needs a forwarder there.
 * **KleidiAI download.** Each native module fetches KleidiAI v1.24.0 during its first CMake configure. For an
   offline build, extract the [v1.24.0 source](https://github.com/ARM-software/kleidiai/archive/refs/tags/v1.24.0.tar.gz)
   once and pass it to both modules:

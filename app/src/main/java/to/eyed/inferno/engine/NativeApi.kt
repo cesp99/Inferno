@@ -23,8 +23,12 @@ internal object Utf8 {
  * (and therefore System.loadLibrary) only on the first call.
  */
 internal interface NativeApi {
-    fun backendInit(minLogPriority: Int, bigMask: Int)
+    fun backendInit(minLogPriority: Int, bigMask: Int, gpuPolicy: Int, cacheDir: String)
     fun systemInfo(): String
+    /** GPU policy (GpuPref.ordinal) for the next load; also drops the cached no_alloc estimates. */
+    fun setGpuPolicy(gpuPolicy: Int) {}
+    /** "name\tversion\tdriver\tadreno\tusable\tactive" or "" (LlamaNative.gpuInfo). */
+    fun gpuInfo(): String = ""
     /** Developer-mode extras with no-op defaults so the scripted test fake stays untouched. */
     fun setLogPriority(minLogPriority: Int) {}
     fun modelBufferTypes(): String = ""
@@ -56,8 +60,10 @@ internal interface NativeApi {
 }
 
 internal object LlamaNativeApi : NativeApi {
-    override fun backendInit(minLogPriority: Int, bigMask: Int) = LlamaNative.backendInit(minLogPriority, bigMask)
+    override fun backendInit(minLogPriority: Int, bigMask: Int, gpuPolicy: Int, cacheDir: String) = LlamaNative.backendInit(minLogPriority, bigMask, gpuPolicy, cacheDir)
     override fun systemInfo(): String = LlamaNative.systemInfo()
+    override fun setGpuPolicy(gpuPolicy: Int) = LlamaNative.setGpuPolicy(gpuPolicy)
+    override fun gpuInfo(): String = LlamaNative.gpuInfo()
     override fun setLogPriority(minLogPriority: Int) = LlamaNative.setLogPriority(minLogPriority)
     override fun modelBufferTypes(): String = LlamaNative.modelBufferTypes()
     override fun modelLoad(path: String, mmprojPath: String?, useMmap: Boolean, nThreadsMmproj: Int, imageMinTokens: Int, imageMaxTokens: Int, progress: ProgressCallback?): Long =

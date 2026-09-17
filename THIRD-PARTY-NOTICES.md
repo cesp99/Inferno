@@ -115,6 +115,14 @@ SPDX-License-Identifier: Apache-2.0
 
 Arm and Kleidi are trademarks of Arm Limited (or its subsidiaries or affiliates).
 
+### 3.1 OpenCL headers (Khronos Group)
+
+* Project: https://github.com/KhronosGroup/OpenCL-Headers (pinned submodule `third_party/OpenCL-Headers`).
+  Header-only: used to compile ggml's OpenCL backend and `app/src/main/cpp/inferno_opencl.cpp`; nothing from the
+  package is shipped in the APK beyond the constants and prototypes compiled into `libinferno.so`. No OpenCL
+  runtime is bundled: the phone's own `libOpenCL.so` (a public vendor library) is loaded at run time.
+* Licence: Apache License 2.0 (`third_party/OpenCL-Headers/LICENSE`; full text in section 8).
+
 ## 4. stb_image (Sean Barrett)
 
 Single-header image decoder used by both engines. Dual-licensed; Inferno uses it under the MIT alternative.
@@ -222,6 +230,7 @@ All of the following are used under the Apache License, Version 2.0 (full text i
 | Kotlin standard library (JetBrains) | 2.4.20 | https://github.com/JetBrains/kotlin |
 | multiplatform-markdown-renderer (Mike Penz) | 0.45.0 | https://github.com/mikepenz/multiplatform-markdown-renderer |
 | KleidiAI (Arm) | v1.24.0 | see section 3 |
+| OpenCL-Headers (Khronos Group) | pinned submodule `third_party/OpenCL-Headers` | https://github.com/KhronosGroup/OpenCL-Headers |
 
 ## 8. Apache License, Version 2.0
 

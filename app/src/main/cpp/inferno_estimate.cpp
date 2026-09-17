@@ -82,7 +82,7 @@ Engine::EstimateEntry * Engine::estimate_entry(const std::string & path) {
     }
     overrides.push_back({ nullptr, nullptr });
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers          = 0;
+    apply_gpu_params(mp, !e.facts.override_patterns.empty());
     mp.use_extra_bufts       = true;
     mp.tensor_buft_overrides = overrides.data();
     mp.no_alloc              = true;             // metadata + simulated allocations only
@@ -114,7 +114,7 @@ bool Engine::mmproj_estimate(const std::string & path, MmprojEstimate & out) {
         return false;
     }
     mtmd_context_params mp = mtmd_context_params_default();
-    mp.use_gpu       = false;
+    mp.use_gpu       = false;     // matches mmproj_load: the encoder is CPU-only
     mp.print_timings = false;
     mp.warmup        = true;      // no_alloc: warmup only reserves the compute buffer for the largest image
     int64_t total = 0;
@@ -147,8 +147,8 @@ bool Engine::estimate_memory(const std::string & path, const std::string & mmpro
     }
     int64_t model = 0, kv = 0, compute = 0;
     // Mirrors common/fit.cpp: several bufts exist here (plain CPU + CPU_KLEIDIAI / CPU_REPACK extra bufts that
-    // Q4_0/Q8_0 weights are repacked into). The extra bufts leave `is_host` unset, so every entry is summed:
-    // this build has no non-host device.
+    // Q4_0/Q8_0 weights are repacked into, plus the OpenCL buft when offloading). Every entry is summed: the
+    // Adreno GPU has no memory of its own, its OpenCL buffers come out of the same system RAM.
     for (const auto & [buft, mb] : llama_get_memory_breakdown(c)) {
         if (!buft) {
             continue;

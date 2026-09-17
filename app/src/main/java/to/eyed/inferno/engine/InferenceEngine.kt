@@ -25,6 +25,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import to.eyed.inferno.data.GpuPref
 import to.eyed.inferno.data.PerfPreset
 import to.eyed.inferno.imagegen.EngineCoordinator
 import to.eyed.inferno.models.ImageDetail
@@ -70,6 +71,12 @@ class InferenceEngine internal constructor(
     /** Performance preset for the ADPF / sustained-mode hints (SettingsState.perfPreset); the VM keeps it current. */
     @Volatile var perfPreset: PerfPreset = PerfPreset.AUTO
     /**
+     * GPU policy (SettingsState.gpu): passed to backendInit, then applied live for the next load. Whether a loaded
+     * model actually runs on the GPU is [LoadedModel.gpu]; the VM reloads the weights when the two disagree.
+     */
+    @Volatile var gpuPref: GpuPref = GpuPref.AUTO
+    private var appliedGpuPref: GpuPref? = null     // engine thread: what native currently holds
+    /**
      * Runs before every [load], outside the engine job: the composition root points it at
      * ImageGenRepository.unload() so stable-diffusion.cpp is out of memory before the text weights (and the
      * budget gate, which reads availMem) run — the mirror image of [releaseForImageGen] (12.5 single-job rule).
@@ -112,6 +119,18 @@ class InferenceEngine internal constructor(
     }
 
     fun systemInfo(): String = native.systemInfo()
+
+    /**
+     * The OpenCL GPU as probed at backend init: null until then, [GpuInfo.available] false without a driver, [GpuInfo.usable]
+     * false when ggml-opencl dropped the device (Mali: no kernels), [GpuInfo.active] when the policy would offload the next load.
+     */
+    data class GpuInfo(val available: Boolean, val name: String, val version: String, val driver: String, val adreno: Boolean, val usable: Boolean, val active: Boolean)
+    fun gpuInfo(): GpuInfo? {
+        if (!backendReady) return null
+        val f = native.gpuInfo().split('\t')
+        return if (f.size < 6) GpuInfo(false, "", "", "", adreno = false, usable = false, active = false)
+        else GpuInfo(true, f[0], f[1], f[2], adreno = f[3] == "1", usable = f[4] == "1", active = f[5] == "1")
+    }
 
     // ---- developer-mode facts (ui/settings/DeveloperPage.kt); snapshot reads, any thread ----
     /** Thread count the live context runs with right now (thermal-adjusted), 0 without a context. */
@@ -182,6 +201,7 @@ class InferenceEngine internal constructor(
                                 templateSupported = nums[MInfo.TEMPLATE_SUPPORTED] == 1L, templateName = strs[MInfoS.TEMPLATE_NAME].ifBlank { null },
                                 context = config.copy(nCtx = native.contextNCtx(ctx)), estimate = est,
                                 loadMs = (System.nanoTime() - t0) / 1_000_000, calibration = null,
+                                gpu = gpuInfo()?.takeIf { it.available && nums[MInfo.ON_GPU] == 1L }?.name,
                             )
                             _kvUsed.value = 0
                             EngineLog.i(TAG, "loaded ${model.id} (${strs[MInfoS.ARCH]}, ${catalog?.family ?: "import"}) nCtx=${current!!.context.nCtx} in ${current!!.loadMs} ms")
@@ -416,7 +436,7 @@ class InferenceEngine internal constructor(
                     val rc = native.generateStart(ctx, prompt.toNative(), images.toNative(), nPredict,
                         assistantPrefix?.toByteArray(Charsets.UTF_8), avail) { done, total, phase ->
                         val encoding = phase == Phase.IMAGE
-                        // SEVERE pauses only the encode itself: native calls back right before each non-cached image
+                        // CRITICAL pauses only the encode itself: native calls back right before each non-cached image
                         // (after a checkpoint, so the abort leaves the KV consistent); cached images and text-only
                         // follow-ups in an image chat never get here and keep working on a hot phone.
                         if (encoding && thermal.pauseImageEncoding()) tooHot = true
@@ -477,6 +497,8 @@ class InferenceEngine internal constructor(
         emitSplit(parser.flush())
         val finish = native.generateFinishReason(ctx)
         val stats = statsLocked(l)
+        EngineLog.i(TAG, "turn: prompt ${stats.promptTokens} (${stats.reusedTokens} reused) in ${stats.prefillMs} ms, ${stats.generatedTokens} generated in ${stats.decodeMs} ms" +
+            (if (stats.imageEncodeMs > 0) ", image ${stats.imageEncodeMs} ms" else "") + (l.gpu?.let { " [gpu]" } ?: " [cpu]"))
         when {
             lowMemory() -> terminal(GenerationEvent.Error(NOT_ENOUGH_MEMORY))
             finish == NFinish.ERROR -> terminal(GenerationEvent.Error(nativeError("Generation failed")))
@@ -591,11 +613,18 @@ class InferenceEngine internal constructor(
     // ---------------------------------------------------------------------------------------------------------
     // Engine-thread helpers (callers hold the job and run on `engine`)
 
+    /** Backend up and the GPU policy of the moment applied; every load / estimate entry point goes through here. */
     private fun ensureBackendLocked() {
-        if (backendReady) return
-        native.backendInit(minLogPriority, cpu.bigMask)
-        backendReady = true
-        EngineLog.i(TAG, "backend: ${native.systemInfo()}")
+        val pref = gpuPref
+        if (!backendReady) {
+            native.backendInit(minLogPriority, cpu.bigMask, pref.ordinal, context?.cacheDir?.resolve("cl-cache")?.path ?: "")
+            backendReady = true
+            appliedGpuPref = pref
+            EngineLog.i(TAG, "backend: ${native.systemInfo()} gpu: ${gpuInfo()}")
+        } else if (pref != appliedGpuPref) {
+            native.setGpuPolicy(pref.ordinal)
+            appliedGpuPref = pref
+        }
     }
 
     private fun estimateLocked(model: LocalModel, config: ContextConfig): MemoryEstimate {

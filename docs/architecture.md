@@ -14,7 +14,7 @@ InferenceEngine  ModelRepository ChatRepository  ImageGenRepository  AppPrefs (D
    │              │              │                │
    │              ├─ ModelFiles  └─ ChatDatabase  ├─ ImageEngine (sdengine module)
    │              └─ ModelDownloader (OkHttp)     └─ GeneratedImageStoreImpl
-   └─ LlamaNative (JNI) ─▶ libinferno.so = llama.cpp + mtmd + KleidiAI, static
+   └─ LlamaNative (JNI) ─▶ libinferno.so = llama.cpp + mtmd + KleidiAI + ggml-opencl, static
                             libinferno_sd.so = stable-diffusion.cpp with its own forked ggml
 ```
 
@@ -29,8 +29,15 @@ built by CMake from the pinned submodules under `third_party/`, for `arm64-v8a` 
 
 * **One native job at a time.** `EngineJob` is a process-wide mutex shared by text, vision and image
   generation. The LLM is unloaded before an image run and lazily reloaded on the next send.
-* **Threads.** Four persistent ggml threadpools pinned to the big cores (detected from
-  `cpuinfo_max_freq`); `ThermalGovernor` steps the count down to 3 and 2 as the thermal status rises.
+* **GPU or CPU.** `inferno_opencl.cpp` dlopens the phone's `libOpenCL.so` (declared with
+  `<uses-native-library>`; no link dependency) and ggml's OpenCL backend runs on top of it. `SettingsState.gpu`
+  = Auto offloads every layer only on Qualcomm Adreno, the family the kernels are tuned for; other GPUs and
+  phones without OpenCL take the CPU path. The choice is made per load (`Engine::apply_gpu_params`), so a
+  change reloads the weights; compiled programs are cached under the app's cache dir.
+* **Threads.** Four persistent ggml threadpools pinned to the big cores: the cores at >= 60 % of the largest
+  `cpu_capacity`, never more threads than pinned cores (an oversubscribed ggml pool spins at every barrier);
+  `ThermalGovernor` steps the count down to 3 at SEVERE (or a headroom forecast of it) and 2 at CRITICAL;
+  LIGHT and MODERATE change nothing (Samsung reports MODERATE from 40 C skin, a phone that feels cool).
 * **Memory.** `ContextManager.plan()` estimates model + KV + compute + encoder bytes from a `no_alloc`
   load and refuses anything above 85 % of the budget; a watchdog polls `availMem` during load, encode and
   prefill and cancels the job under 500 MB. This exists because a 5.6 GB image-encode once kernel-panicked

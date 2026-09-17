@@ -32,6 +32,13 @@ import java.io.IOException
 
 enum class KvCachePref { AUTO, F16, Q8_0, Q4_0 }
 /**
+ * Settings > Performance > GPU. AUTO offloads only on Qualcomm Adreno (the family ggml-opencl is tuned for; Mali
+ * measured many times slower than the CPU path) and only models with nothing pinned to the CPU (Gemma 4's per-layer
+ * embeddings force a CPU<->GPU split per layer: 12.8 vs 20.1 t/s on Adreno 840, docs/performance.md); ON takes any
+ * OpenCL GPU for any model; OFF stays on the CPU. Ordinal = inferno_opencl.h GpuPolicy.
+ */
+enum class GpuPref { AUTO, ON, OFF }
+/**
  * What happens when a chat outgrows the model's context (Settings > Chat). ROLLING drops the oldest turns from the
  * prompt (the history stays), COMPACT asks the model to summarize the older turns before the next one, STOP blocks the
  * composer until the user opens a new chat. Absorbs the old `autoTrim` boolean (false -> STOP, true -> ROLLING).
@@ -57,6 +64,7 @@ data class SettingsState(
     val kvCache: KvCachePref = KvCachePref.AUTO,
     val flashAttention: Boolean = true,         // Advanced; setKvCache(Q8_0/Q4_0) forces true and the toggle is disabled ("Required for quantized KV")
     val useMmap: Boolean = true,                // Advanced; "false" selects LLAMA_LOAD_MODE_DIRECT_IO for repacked tensors
+    val gpu: GpuPref = GpuPref.AUTO,            // weights + KV on the OpenCL device (Adreno); a change reloads the weights
     val poll: Int = 50,                         // Advanced (preset writes it)
     val keepModelLoaded: Boolean = true,        // keep weights in RAM while backgrounded
     // generation
@@ -140,6 +148,7 @@ class AppPrefs(
     suspend fun setKvCache(k: KvCachePref) = update { it.copy(kvCache = k, flashAttention = it.flashAttention || k == KvCachePref.Q8_0 || k == KvCachePref.Q4_0) }
     suspend fun setFlashAttention(v: Boolean) = update { it.copy(flashAttention = v || it.kvCache == KvCachePref.Q8_0 || it.kvCache == KvCachePref.Q4_0) }
     suspend fun setUseMmap(v: Boolean) = update { it.copy(useMmap = v) }
+    suspend fun setGpu(g: GpuPref) = update { it.copy(gpu = g) }
     suspend fun setPoll(v: Int) = update { it.copy(poll = v.coerceIn(0, 100)) }
     suspend fun setKeepModelLoaded(v: Boolean) = update { it.copy(keepModelLoaded = v) }
     suspend fun setParams(p: GenerationParams) = update { it.copy(params = p) }
@@ -185,6 +194,7 @@ private object K {
     val kvCache = stringPreferencesKey("kvCache")
     val flashAttention = booleanPreferencesKey("flashAttention")
     val useMmap = booleanPreferencesKey("useMmap")
+    val gpu = stringPreferencesKey("gpu")
     val poll = intPreferencesKey("poll")
     val keepModelLoaded = booleanPreferencesKey("keepModelLoaded")
     val params = stringPreferencesKey("params")
@@ -230,6 +240,7 @@ internal fun Preferences.toState(): SettingsState {
         kvCache = enum(this[K.kvCache], d.kvCache),
         flashAttention = this[K.flashAttention] ?: d.flashAttention,
         useMmap = this[K.useMmap] ?: d.useMmap,
+        gpu = enum(this[K.gpu], d.gpu),
         poll = this[K.poll] ?: d.poll,
         keepModelLoaded = this[K.keepModelLoaded] ?: d.keepModelLoaded,
         params = decode(this[K.params], d.params),
@@ -274,6 +285,7 @@ internal fun MutablePreferences.write(s: SettingsState) {
     this[K.kvCache] = s.kvCache.name
     this[K.flashAttention] = s.flashAttention
     this[K.useMmap] = s.useMmap
+    this[K.gpu] = s.gpu.name
     this[K.poll] = s.poll
     this[K.keepModelLoaded] = s.keepModelLoaded
     this[K.params] = json.encodeToString(GenerationParams.serializer(), s.params)

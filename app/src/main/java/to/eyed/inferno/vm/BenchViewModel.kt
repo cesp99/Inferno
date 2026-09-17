@@ -57,7 +57,8 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
      * (validates the kvTypeFor threshold on this phone). Rows that match the current preset refresh the calibration.
      */
     fun runMatrix() = start { cfg ->
-        val variants = listOf(Triple(4, true, S.bench4Pinned), Triple(4, false, S.bench4Unpinned), Triple(3, true, S.bench3Pinned), Triple(8, false, S.bench8Threads))
+        // Pinned rows run with at most nBig threads (CpuTopology.threadsFor); the label shows the count that actually ran.
+        val variants = listOf(4 to true, 4 to false, 3 to true, 8 to false).map { (n, pin) -> Triple(c.cpu.threadsFor(n, pin), pin, S.benchThreads(c.cpu.threadsFor(n, pin), pin)) }
         val total = variants.size + 2
         var i = 0
         var threadsChanged = false
@@ -154,7 +155,7 @@ class BenchViewModel(private val c: AppContainer) : ViewModel() {
     private suspend fun updateCalibration(cfg: ContextConfig, pp: Double, tg: Double) {
         val l = c.engine.loaded ?: return
         val s = c.prefs.settings.value
-        if (cfg.nThreads != s.threads || cfg.bigCoresOnly != s.pinBigCores) return
+        if (cfg.nThreads != c.cpu.threadsFor(s.threads, s.pinBigCores) || cfg.bigCoresOnly != s.pinBigCores) return
         val prev = s.calibration[l.model.id]
         val cal = Calibration(pp, tg, l.loadMs, System.currentTimeMillis(), prev?.imageEncode ?: emptyMap())
         withContext(Dispatchers.IO) { c.prefs.setCalibration(l.model.id, cal) }

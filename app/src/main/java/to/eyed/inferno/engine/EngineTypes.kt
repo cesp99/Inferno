@@ -91,6 +91,7 @@ data class LoadedModel(
     val estimate: MemoryEstimate?,
     val loadMs: Long,
     val calibration: Calibration?,     // measured on this phone (5.5 AppViewModel auto-bench), null until measured
+    val gpu: String? = null,           // OpenCL device name when the weights were offloaded (SettingsState.gpu x probe), null on the CPU
 )
 
 /** Measured numbers per model on this device; persisted in AppPrefs (`calibration` JSON map keyed by modelId). */

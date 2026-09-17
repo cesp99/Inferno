@@ -266,6 +266,14 @@ object S {
     const val presetMax = "Max"
     const val presetCool = "Cool"
     const val presetDescription = "Auto balances speed and heat. Max holds the clocks up. Cool keeps a core free."
+    const val gpu = "GPU"
+    const val gpuNotProbed = "Auto uses a Qualcomm Adreno GPU when there is one. Detected at the first load."
+    fun gpuDesc(device: String?, adreno: Boolean, usable: Boolean) = when {
+        device == null -> "No OpenCL GPU on this phone. Auto and On run on the CPU."
+        !usable -> "$device has no GPU kernels in this build (Adreno only). Auto and On run on the CPU."
+        adreno -> "$device. Auto uses it for models that fit on it entirely (Gemma 4 keeps its embeddings on the CPU and runs faster there). On forces the GPU."
+        else -> "$device is not an Adreno GPU: Auto stays on the CPU, which is faster here. On forces the GPU."
+    }
     const val imageDetail = "Image detail"
     const val keepModelLoaded = "Keep model loaded"
     const val keepModelLoadedDesc = "Stay ready in the background. Uses memory while idle."
@@ -475,6 +483,7 @@ object S {
     const val llamaCppRow = "llama.cpp"
     const val sdCppRow = "stable-diffusion.cpp"
     const val cpuRow = "CPU"
+    const val gpuRow = "GPU"
     const val cpuFeaturesRow = "CPU features"
     const val threadsRow = "Threads"
     const val thermalRow = "Thermal"
@@ -522,10 +531,7 @@ object S {
     const val benchmarkFailed = "Benchmark failed"
     fun benchVariantSkipped(kv: String, reason: String?) = "16k $kv skipped: $reason"
     const val benchQuick = "Quick"
-    const val bench4Pinned = "4 pinned"
-    const val bench4Unpinned = "4 unpinned"
-    const val bench3Pinned = "3 pinned"
-    const val bench8Threads = "8 threads"
+    fun benchThreads(n: Int, pinned: Boolean) = if (pinned) "$n pinned" else "$n unpinned"
     fun benchTg16k(kv: String) = "tg128 @ 16k $kv"
 
     // Small UI literals (SettingsSheet compute row, UnsupportedCpuScreen facts, BenchScreen results, ModelManager storage, FirstRun)

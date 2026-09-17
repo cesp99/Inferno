@@ -20,7 +20,9 @@ object LlamaNative {
     init { System.loadLibrary("inferno") }
 
     // lifecycle
-    @JvmStatic external fun backendInit(minLogPriority: Int, bigMask: Int)      // android.util.Log priority (DEBUG=3 .. ERROR=6); bigMask -> sched_setaffinity of the engine thread
+    @JvmStatic external fun backendInit(minLogPriority: Int, bigMask: Int, gpuPolicy: Int, cacheDir: String)   // log priority (DEBUG=3 .. ERROR=6); bigMask -> sched_setaffinity of the engine thread; gpuPolicy = GpuPref.ordinal; cacheDir for compiled OpenCL programs
+    @JvmStatic external fun setGpuPolicy(gpuPolicy: Int)                        // GpuPref.ordinal; takes effect at the next modelLoad / estimateMemory (clears the estimate cache)
+    @JvmStatic external fun gpuInfo(): String                                   // "name\tversion\tdriver\tadreno(0/1)\tusable(0/1)\tactive(0/1)", "" without an OpenCL GPU; any thread after backendInit
     @JvmStatic external fun backendFree()
     @JvmStatic external fun systemInfo(): String                                // llama_print_system_info() (ASCII)
     @JvmStatic external fun setLogPriority(minLogPriority: Int)                 // live change of the backendInit floor; any thread

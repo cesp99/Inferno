@@ -45,7 +45,7 @@ object SmpI { const val TOP_K = 0; const val REPEAT_LAST_N = 1; const val DRY_AL
 /** Layout of LlamaNative.modelInfoNumbers(). */
 object MInfo { const val N_PARAMS = 0; const val SIZE_BYTES = 1; const val N_CTX_TRAIN = 2; const val N_LAYER = 3
                const val N_EMBD = 4; const val N_HEAD_KV = 5; const val N_SWA = 6; const val HAS_VISION = 7
-               const val TEMPLATE_SUPPORTED = 8; const val N_VOCAB = 9; const val SIZE = 10 }
+               const val TEMPLATE_SUPPORTED = 8; const val N_VOCAB = 9; const val ON_GPU = 10; const val SIZE = 11 }
 /** Layout of LlamaNative.modelInfoStrings(). */
 object MInfoS { const val ARCH = 0; const val DESC = 1; const val NAME = 2; const val TEMPLATE_NAME = 3; const val SIZE = 4 }
 

@@ -41,6 +41,32 @@ class CpuTopologyProbeTest {
         assertEquals(0xFF, q.bigMask)
     }
 
+    // Galaxy Z Fold (Snapdragon 8 Elite Gen 5): 2 prime cores at 1024 + 6 performance cores at 741, no efficiency cluster.
+    private val eliteCapacity = listOf<Long?>(741, 741, 741, 741, 741, 741, 1024, 1024)
+    private val eliteMaxFreq = listOf<Long?>(3_628_800, 3_628_800, 3_628_800, 3_628_800, 3_628_800, 3_628_800, 4_742_400, 4_742_400)
+
+    @Test fun secondPerformanceTierCountsAsBig() {
+        // Only the max tier would pin 4 threads on 2 cores; every core of this SoC is fast enough to count.
+        val p = CpuTopology.parse(seekerCpuinfo, 8, eliteCapacity, eliteMaxFreq)
+        assertEquals(0xFF, p.bigMask); assertEquals(8, p.nBig)
+        // 1 prime + 3 big + 4 little: prime and big are pinnable, little is not.
+        val q = CpuTopology.parse(seekerCpuinfo, 8, listOf<Long?>(300, 300, 300, 300, 810, 810, 810, 1024), List(8) { null })
+        assertEquals(0xF0, q.bigMask); assertEquals(4, q.nBig)
+    }
+
+    @Test fun frequencyFallbackIsStricter() {
+        // 3.6 / 4.7 GHz = 0.77: below the 0.85 frequency line, so only the prime pair; the thread clamp covers the rest.
+        val p = CpuTopology.parse(seekerCpuinfo, 8, List(8) { null }, eliteMaxFreq)
+        assertEquals(0xC0, p.bigMask); assertEquals(2, p.nBig)
+    }
+
+    @Test fun pinnedThreadsNeverExceedBigCores() {
+        val two = CpuTopology(CpuTopology.parse(seekerCpuinfo, 8, List(8) { null }, eliteMaxFreq), "test", 8L shl 30) { 4L shl 30 }
+        assertEquals(2, two.threadsFor(4, pinned = true)); assertEquals(4, two.threadsFor(4, pinned = false)); assertEquals(1, two.threadsFor(1, pinned = true))
+        val four = EngineTestFixtures.cpu({ 4L shl 30 })
+        assertEquals(4, four.threadsFor(4, pinned = true)); assertEquals(3, four.threadsFor(3, pinned = true)); assertEquals(8, four.threadsFor(8, pinned = false))
+    }
+
     @Test fun featuresAreIntersectedAcrossClusters() {
         // A little core without dotprod must disable the gate for the whole SoC (pinning is optional).
         val mixed = seekerCpuinfo.replaceFirst("dcpop asimddp", "dcpop")

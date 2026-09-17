@@ -41,6 +41,13 @@ class CpuTopology(
     /** ActivityManager.MemoryInfo.availMem, fresh each call (the memory watchdog polls it every 500 ms). */
     fun availRamBytes(): Long = availRam()
 
+    /**
+     * Thread count to actually run when [pinned]: never more threads than pinned cores. ggml workers synchronise with
+     * spin barriers, so two threads sharing one core wait on scheduler time slices at every graph node; on a 2-big-core
+     * SoC the 4-thread default made the first-load calibration take tens of minutes. Unpinned counts pass through.
+     */
+    fun threadsFor(requested: Int, pinned: Boolean): Int = if (pinned && nBig in 1 until requested) nBig else requested
+
     data class Probe(val nCores: Int, val nBig: Int, val bigMask: Int, val hasDotprod: Boolean, val hasFp16: Boolean,
                      val hasI8mm: Boolean, val hasSve: Boolean)
 
@@ -88,19 +95,27 @@ class CpuTopology(
         }
 
         /**
-         * Big cores = cores at the maximum cpu_capacity (fallback: maximum cpuinfo_max_freq). A homogeneous SoC
-         * (or no sysfs data) makes every core "big" so pinning degrades to a no-op instead of to zero threads.
+         * Big cores = cores whose cpu_capacity is at least [BIG_CAPACITY_FRACTION] of the largest (fallback: cpuinfo_max_freq
+         * at [BIG_FREQ_FRACTION] of the highest). Only the efficiency cluster falls below the line: little cores sit at
+         * 0.2-0.45 of the prime core, while a second performance tier (Snapdragon 8 Elite: 2x1024 + 6x741; 1+3+4
+         * layouts: 1024 + ~800) stays above it. "Cores at the maximum" would pin the 4 default threads onto the one or two
+         * prime cores, and the spin barriers of an oversubscribed ggml pool then run a calibration for tens of minutes.
+         * A homogeneous SoC (or no sysfs data) makes every core "big" so pinning degrades to a no-op instead of to zero threads.
          */
         fun bigMask(nCores: Int, capacities: List<Long?>, maxFreqs: List<Long?>): Int {
-            fun maskFor(values: List<Long?>): Int? {
+            fun maskFor(values: List<Long?>, fraction: Double): Int? {
                 if (values.size < nCores || values.any { it == null }) return null
-                val max = values.maxOf { it!! }
+                val floor = values.maxOf { it!! } * fraction
                 var m = 0
-                values.forEachIndexed { i, v -> if (v == max) m = m or (1 shl i) }
+                values.forEachIndexed { i, v -> if (v!! >= floor) m = m or (1 shl i) }
                 return m
             }
-            return maskFor(capacities) ?: maskFor(maxFreqs) ?: ((1 shl nCores) - 1)
+            return maskFor(capacities, BIG_CAPACITY_FRACTION) ?: maskFor(maxFreqs, BIG_FREQ_FRACTION) ?: ((1 shl nCores) - 1)
         }
+
+        const val BIG_CAPACITY_FRACTION = 0.6
+        /** Frequency separates the tiers far less (little cores clock at ~0.6-0.8 of the prime core), so the fallback is stricter. */
+        const val BIG_FREQ_FRACTION = 0.85
 
         fun socName(): String = try {
             Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } ?: "unknown"
@@ -116,7 +131,10 @@ class CpuTopology(
 /**
  * Thermal-aware thread count + SoC hints. Reactive part: PowerManager thermal status listener. Proactive part
  * (runs only while generating): polls `PowerManager.getThermalHeadroom(10)` every 10 s and steps down to 3 threads
- * at headroom >= 0.9 before the status changes. ADPF: a `PerformanceHintManager` session over the engine + worker
+ * at headroom >= 0.95 (a forecast of the SEVERE line) before the status changes. Nothing happens below SEVERE:
+ * Android defines MODERATE as "UX not largely impacted", and Samsung reaches it at 40 C skin (thresholds
+ * 38/40/42/45 C for LIGHT/MODERATE/SEVERE/CRITICAL on the Galaxy Z Fold), a phone that feels cool in the hand;
+ * flagging it hot and dropping a core there made the chip show almost permanently. ADPF: a `PerformanceHintManager` session over the engine + worker
  * tids with target = 1000 / targetTps ms, fed one `reportActualWorkDuration` per generated token, closed when the
  * turn ends. Sustained performance mode needs a Window, which this class has no access to: [sustainedRequested]
  * is true while a PerfPreset.MAX generation runs on a device that supports it; the Activity applies
@@ -154,18 +172,18 @@ open class ThermalGovernor(
         pm?.addThermalStatusListener({ it.run() }) { s -> _status.value = s }
     }
 
-    /** headroom >= 0.9 or MODERATE: max(2, requested-1); SEVERE+: max(1, requested-2). */
+    /** SEVERE or headroom >= 0.95: max(2, requested-1); CRITICAL+: max(1, requested-2); LIGHT / MODERATE: unchanged. */
     open fun threadsFor(requested: Int): Int {
         val s = _status.value
         val h = _headroom.value
         return when {
-            s >= PowerManager.THERMAL_STATUS_SEVERE -> maxOf(1, requested - 2)
-            s >= PowerManager.THERMAL_STATUS_MODERATE || (h.isFinite() && h >= 0.9f) -> maxOf(2, requested - 1)
+            s >= PowerManager.THERMAL_STATUS_CRITICAL -> maxOf(1, requested - 2)
+            s >= PowerManager.THERMAL_STATUS_SEVERE || (h.isFinite() && h >= HEADROOM_STEP_DOWN) -> maxOf(2, requested - 1)
             else -> requested
         }
     }
 
-    open fun pauseImageEncoding(): Boolean = _status.value >= PowerManager.THERMAL_STATUS_SEVERE
+    open fun pauseImageEncoding(): Boolean = _status.value >= PowerManager.THERMAL_STATUS_CRITICAL
 
     open fun beginGeneration(ctx: Long, preset: PerfPreset, targetTps: Double) {
         teardown()
@@ -239,6 +257,8 @@ open class ThermalGovernor(
 
     companion object {
         private const val TAG = "Thermal"
+        /** getThermalHeadroom: 1.0 = the SEVERE threshold; 0.9 tripped at ~38 C skin on Samsung, 0.95 is a real warning. */
+        const val HEADROOM_STEP_DOWN = 0.95f
 
         /** ADPF target: measured tg t/s when calibrated, else the midpoint of the catalog's "a-b" estimate, else 15. */
         fun targetTps(l: LoadedModel): Double {
